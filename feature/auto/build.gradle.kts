@@ -39,6 +39,8 @@ dependencies {
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
 
+    implementation(libs.androidx.core.ktx)
+
     implementation(libs.androidx.activity.compose)
 
     implementation(project(":domain"))
@@ -46,6 +48,10 @@ dependencies {
 
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
+
+    implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.hilt.work)
+    kapt(libs.androidx.hilt.compiler)
 
     implementation(libs.hilt.android)
     kapt(libs.hilt.compiler)

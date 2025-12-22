@@ -2,6 +2,7 @@ package com.alibaba.feature.auto
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -31,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.alibaba.domain.model.OutputFormat
 
@@ -46,6 +48,11 @@ fun AutoRoute(
     val state by viewModel.state.collectAsState()
 
     val context = LocalContext.current
+
+    val notifyPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = { _ -> }
+    )
     val folderPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree(),
         onResult = { uri ->
@@ -68,10 +75,23 @@ fun AutoRoute(
         onExtract = viewModel::extract,
         onToggleCountry = viewModel::toggleCountry,
         onMergeChange = viewModel::setMergeIntoSingle,
+        onAutoDetectFormatChange = viewModel::setAutoDetectFormat,
         onFormatChange = viewModel::setOutputFormat,
         onPrev = viewModel::prevStep,
         onNext = viewModel::nextStep,
-        onRun = viewModel::run,
+        onRun = {
+            if (Build.VERSION.SDK_INT >= 33) {
+                val granted = ContextCompat.checkSelfPermission(
+                    context,
+                    android.Manifest.permission.POST_NOTIFICATIONS
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                if (!granted) {
+                    notifyPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                    return@AutoScreen
+                }
+            }
+            viewModel.run()
+        },
         onPickFolder = { folderPicker.launch(null) },
         modifier = modifier
     )
@@ -84,6 +104,7 @@ fun AutoScreen(
     onExtract: () -> Unit,
     onToggleCountry: (String, Boolean) -> Unit,
     onMergeChange: (Boolean) -> Unit,
+    onAutoDetectFormatChange: (Boolean) -> Unit,
     onFormatChange: (OutputFormat) -> Unit,
     onPrev: () -> Unit,
     onNext: () -> Unit,
@@ -219,9 +240,20 @@ fun AutoScreen(
 
             2 -> {
                 Text(text = "Çıktı Formatı", style = MaterialTheme.typography.titleMedium)
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = state.autoDetectFormat, onCheckedChange = { onAutoDetectFormatChange(it) })
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(text = "Otomatik belirle (önerilen)")
+                }
+
                 OutputFormat.values().forEach { format ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = state.outputFormat == format, onClick = { onFormatChange(format) })
+                        RadioButton(
+                            selected = state.outputFormat == format,
+                            onClick = { onFormatChange(format) },
+                            enabled = !state.autoDetectFormat
+                        )
                         Text(text = when (format) {
                             OutputFormat.M3U -> ".m3u"
                             OutputFormat.M3U8 -> ".m3u8"
