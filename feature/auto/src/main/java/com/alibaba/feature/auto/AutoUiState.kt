@@ -22,11 +22,16 @@ data class AutoUiState(
     val mergeIntoSingle: Boolean = true,
     val outputFormat: OutputFormat = OutputFormat.M3U8,
     val mergeRenameWarning: String? = null,
+    val outputFolderUriString: String? = null,
     val loading: Boolean = false,
     val progressPercent: Int = 0,
     val progressStep: String? = null,
     val etaSeconds: Long? = null,
     val errorMessage: String? = null,
+    val reportText: String? = null,
+    val workingUrls: List<String> = emptyList(),
+    val failingUrls: List<String> = emptyList(),
+    val lastRunSaved: Boolean = false,
     val outputPreview: String? = null,
     val savedFiles: List<SavedFileItem> = emptyList()
 )

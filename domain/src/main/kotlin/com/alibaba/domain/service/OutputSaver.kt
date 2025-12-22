@@ -14,4 +14,12 @@ interface OutputSaver {
         content: String,
         maybeEndDate: String?
     ): SavedOutput
+
+    suspend fun saveToFolder(
+        folderUriString: String,
+        sourceUrl: String,
+        format: OutputFormat,
+        content: String,
+        maybeEndDate: String?
+    ): SavedOutput
 }

@@ -2,6 +2,8 @@ package com.alibaba.feature.auto
 
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
@@ -42,6 +44,24 @@ fun AutoRoute(
     viewModel: AutoViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+
+    val context = LocalContext.current
+    val folderPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree(),
+        onResult = { uri ->
+            if (uri != null) {
+                try {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    )
+                } catch (_: Throwable) {
+                }
+                viewModel.setOutputFolder(uri.toString())
+            }
+        }
+    )
+
     AutoScreen(
         state = state,
         onInputChange = viewModel::onInputChange,
@@ -52,6 +72,7 @@ fun AutoRoute(
         onPrev = viewModel::prevStep,
         onNext = viewModel::nextStep,
         onRun = viewModel::run,
+        onPickFolder = { folderPicker.launch(null) },
         modifier = modifier
     )
 }
@@ -67,6 +88,7 @@ fun AutoScreen(
     onPrev: () -> Unit,
     onNext: () -> Unit,
     onRun: () -> Unit,
+    onPickFolder: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val scroll = rememberScrollState()
@@ -112,6 +134,31 @@ fun AutoScreen(
         }
 
         state.errorMessage?.let { Text(text = it, color = MaterialTheme.colorScheme.error) }
+
+        if (state.loading && state.extractedUrls.isNotEmpty()) {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(text = "İlerleme", style = MaterialTheme.typography.titleMedium)
+                    state.extractedUrls.forEach { item ->
+                        val statusColor = when (item.success) {
+                            true -> MaterialTheme.colorScheme.primary
+                            false -> MaterialTheme.colorScheme.error
+                            null -> MaterialTheme.colorScheme.onSurface
+                        }
+                        val suffix = buildString {
+                            item.status?.let { append(" - "); append(it) }
+                            if (item.testedStreams > 0) {
+                                append(" (${item.testedStreams} test)")
+                            }
+                        }
+                        Text(text = "- ${item.url}", color = statusColor)
+                        if (suffix.isNotBlank()) {
+                            Text(text = suffix.trim(), style = MaterialTheme.typography.bodySmall, color = statusColor)
+                        }
+                    }
+                }
+            }
+        }
 
         when (stepIndex) {
             0 -> {
@@ -208,6 +255,16 @@ fun AutoScreen(
                     }
                 }
 
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(text = "Kayıt Klasörü", style = MaterialTheme.typography.titleMedium)
+                        Text(text = state.outputFolderUriString ?: "Download/IPTV (varsayılan)", style = MaterialTheme.typography.bodySmall)
+                        Button(onClick = onPickFolder, enabled = !state.loading) {
+                            Text(text = "Klasör Seç")
+                        }
+                    }
+                }
+
                 state.mergeRenameWarning?.let { warning ->
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -268,6 +325,15 @@ fun AutoScreen(
                     ) {
                         Text(text = "Paylaş")
                     }
+                }
+            }
+        }
+
+        state.reportText?.let { report ->
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(text = "Rapor", style = MaterialTheme.typography.titleMedium)
+                    Text(text = report, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }

@@ -30,6 +30,7 @@ dependencies {
     implementation(project(":core:parser"))
 
     implementation(libs.okhttp)
+    implementation(libs.androidx.documentfile)
 
     implementation(libs.kotlinx.coroutines.android)
 

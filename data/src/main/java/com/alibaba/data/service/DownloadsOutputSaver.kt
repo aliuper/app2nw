@@ -5,6 +5,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
 import android.provider.MediaStore
+import androidx.documentfile.provider.DocumentFile
 import com.alibaba.domain.model.OutputFormat
 import com.alibaba.domain.service.OutputSaver
 import com.alibaba.domain.service.SavedOutput
@@ -62,6 +63,60 @@ class DownloadsOutputSaver @Inject constructor(
         } ?: throw IllegalStateException("Output stream failed")
 
         SavedOutput(displayName = displayName, uriString = uri.toString())
+    }
+
+    override suspend fun saveToFolder(
+        folderUriString: String,
+        sourceUrl: String,
+        format: OutputFormat,
+        content: String,
+        maybeEndDate: String?
+    ): SavedOutput = withContext(Dispatchers.IO) {
+        val resolver = context.contentResolver
+        val startDate = LocalDate.now().format(DateTimeFormatter.ofPattern("ddMMyyyy"))
+        val sourceName = deriveSourceName(sourceUrl)
+        val ext = when (format) {
+            OutputFormat.M3U -> "m3u"
+            OutputFormat.M3U8 -> "m3u8"
+            OutputFormat.M3U8PLUS -> "m3u8plus"
+        }
+
+        val folderUri = Uri.parse(folderUriString)
+        val folder = DocumentFile.fromTreeUri(context, folderUri)
+            ?: throw IllegalStateException("Folder uri not accessible")
+
+        val basePrefix = buildString {
+            append(startDate)
+            append('_')
+            append(sourceName)
+            append("_v")
+        }
+
+        var version = 1
+        while (true) {
+            val base = buildString {
+                append(basePrefix)
+                append(version)
+                if (!maybeEndDate.isNullOrBlank()) {
+                    append('_')
+                    append(maybeEndDate)
+                }
+            }
+            val displayName = "$base.$ext"
+
+            val exists = folder.listFiles().any { it.name == displayName }
+            if (!exists) {
+                val created = folder.createFile("application/octet-stream", displayName)
+                    ?: throw IllegalStateException("Create file failed")
+                val outUri = created.uri
+                resolver.openOutputStream(outUri, "w")?.use { out ->
+                    out.write(content.toByteArray(Charsets.UTF_8))
+                } ?: throw IllegalStateException("Output stream failed")
+                return@withContext SavedOutput(displayName = displayName, uriString = outUri.toString())
+            }
+
+            version += 1
+        }
     }
 
     private fun deriveSourceName(url: String): String {

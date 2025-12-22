@@ -74,6 +74,10 @@ class AutoViewModel @Inject constructor(
         _state.update { it.copy(outputFormat = format) }
     }
 
+    fun setOutputFolder(uriString: String?) {
+        _state.update { it.copy(outputFolderUriString = uriString) }
+    }
+
     fun run() {
         val urls = state.value.extractedUrls.map { it.url }
         if (urls.isEmpty()) {
@@ -97,36 +101,60 @@ class AutoViewModel @Inject constructor(
                     etaSeconds = null,
                     errorMessage = null,
                     savedFiles = emptyList(),
+                    workingUrls = emptyList(),
+                    failingUrls = emptyList(),
+                    lastRunSaved = false,
                     outputPreview = null,
-                    mergeRenameWarning = null
+                    mergeRenameWarning = null,
+                    reportText = null
                 )
             }
 
             try {
-                val results = ArrayList<UrlItem>(urls.size)
+                val items = state.value.extractedUrls.toMutableList()
                 val mergedChannels = ArrayList<Channel>(16_384)
                 var mergedEndDate: String? = null
 
                 val usedGroupNames = linkedMapOf<String, Int>()
                 val renameSamples = ArrayList<String>(16)
 
+                val working = ArrayList<String>(urls.size)
+                val failing = ArrayList<String>(urls.size)
+
+                val folderUriString = state.value.outputFolderUriString
+
                 for ((index, url) in urls.withIndex()) {
-                    setProgress(percent = ((index * 100) / urls.size).coerceIn(0, 99), step = "İndiriliyor")
+                    val header = "${index + 1}/${urls.size}"
+                    setProgress(percent = ((index * 100) / urls.size).coerceIn(0, 99), step = "${header} - Link indiriliyor")
+                    items[index] = items[index].copy(status = "İndiriliyor", success = null, testedStreams = 0)
+                    _state.update { it.copy(extractedUrls = items.toList()) }
 
                     try {
                         val playlist = playlistRepository.fetchPlaylist(url)
                         val filtered = filterPlaylistByCountries(playlist, countries)
 
-                        setProgress(percent = ((index * 100) / urls.size).coerceIn(0, 99), step = "Stream testi")
-                        val test = runStreamTest(filtered)
+                        items[index] = items[index].copy(status = "İndirildi", success = null)
+                        _state.update { it.copy(extractedUrls = items.toList()) }
+
+                        setProgress(percent = ((index * 100) / urls.size).coerceIn(0, 99), step = "${header} - Stream testi")
+                        val test = runStreamTestDetailed(
+                            playlist = filtered,
+                            onTestUpdate = { tested, total ->
+                                items[index] = items[index].copy(status = "Test ${tested}/${total}", success = null, testedStreams = tested)
+                                _state.update { it.copy(extractedUrls = items.toList()) }
+                            }
+                        )
                         val ok = test.first
                         val testedCount = test.second
                         if (!ok) {
-                            results += UrlItem(url = url, status = "Stream testi başarısız", success = false, testedStreams = testedCount)
+                            items[index] = items[index].copy(status = "Stream testi başarısız", success = false, testedStreams = testedCount)
+                            failing += url
                             continue
                         }
 
-                        results += UrlItem(url = url, status = "OK", success = true, testedStreams = testedCount)
+                        items[index] = items[index].copy(status = "OK", success = true, testedStreams = testedCount)
+                        working += url
+                        _state.update { it.copy(extractedUrls = items.toList()) }
 
                         if (state.value.mergeIntoSingle) {
                             val renamed = mergeWithBackupNames(
@@ -136,26 +164,45 @@ class AutoViewModel @Inject constructor(
                             )
                             mergedChannels += renamed
                             mergedEndDate = mergedEndDate ?: filtered.endDate
+                            items[index] = items[index].copy(status = "Birleştirildi", success = true, testedStreams = testedCount)
+                            _state.update { it.copy(extractedUrls = items.toList()) }
                         } else {
+                            items[index] = items[index].copy(status = "Kaydediliyor", success = true, testedStreams = testedCount)
+                            _state.update { it.copy(extractedUrls = items.toList()) }
+
                             val content = withContext(Dispatchers.Default) {
                                 val groups = filtered.channels.map { it.group ?: "Ungrouped" }.toSet()
                                 PlaylistTextFormatter.format(filtered, groups, state.value.outputFormat)
                             }
-                            val saved = outputSaver.saveToDownloads(
-                                sourceUrl = url,
-                                format = state.value.outputFormat,
-                                content = content,
-                                maybeEndDate = filtered.endDate
-                            )
+
+                            val saved = if (folderUriString.isNullOrBlank()) {
+                                outputSaver.saveToDownloads(
+                                    sourceUrl = url,
+                                    format = state.value.outputFormat,
+                                    content = content,
+                                    maybeEndDate = filtered.endDate
+                                )
+                            } else {
+                                outputSaver.saveToFolder(
+                                    folderUriString = folderUriString,
+                                    sourceUrl = url,
+                                    format = state.value.outputFormat,
+                                    content = content,
+                                    maybeEndDate = filtered.endDate
+                                )
+                            }
                             _state.update { s ->
                                 s.copy(savedFiles = s.savedFiles + SavedFileItem(saved.displayName, saved.uriString))
                             }
+                            items[index] = items[index].copy(status = "Kaydedildi", success = true, testedStreams = testedCount)
+                            _state.update { it.copy(extractedUrls = items.toList()) }
                         }
                     } catch (t: Throwable) {
-                        results += UrlItem(url = url, status = t.message ?: "Hata", success = false)
+                        items[index] = items[index].copy(status = t.message ?: "Hata", success = false)
+                        failing += url
                     }
 
-                    _state.update { it.copy(extractedUrls = results.toList()) }
+                    _state.update { it.copy(extractedUrls = items.toList()) }
                 }
 
                 if (state.value.mergeIntoSingle) {
@@ -174,12 +221,23 @@ class AutoViewModel @Inject constructor(
                         val groups = merged.channels.map { it.group ?: "Ungrouped" }.toSet()
                         PlaylistTextFormatter.format(merged, groups, state.value.outputFormat)
                     }
-                    val saved = outputSaver.saveToDownloads(
-                        sourceUrl = "alibaba",
-                        format = state.value.outputFormat,
-                        content = content,
-                        maybeEndDate = merged.endDate
-                    )
+
+                    val saved = if (folderUriString.isNullOrBlank()) {
+                        outputSaver.saveToDownloads(
+                            sourceUrl = "alibaba",
+                            format = state.value.outputFormat,
+                            content = content,
+                            maybeEndDate = merged.endDate
+                        )
+                    } else {
+                        outputSaver.saveToFolder(
+                            folderUriString = folderUriString,
+                            sourceUrl = "alibaba",
+                            format = state.value.outputFormat,
+                            content = content,
+                            maybeEndDate = merged.endDate
+                        )
+                    }
 
                     _state.update {
                         it.copy(
@@ -189,9 +247,44 @@ class AutoViewModel @Inject constructor(
                     }
                 }
 
-                _state.update { it.copy(loading = false, progressPercent = 100, progressStep = null, etaSeconds = null) }
+                val report = buildString {
+                    append("Bitti. Çalışan: ")
+                    append(working.size)
+                    append(" | Çalışmayan: ")
+                    append(failing.size)
+                    if (!folderUriString.isNullOrBlank()) {
+                        append(" | Klasör: ")
+                        append(folderUriString)
+                    } else {
+                        append(" | Klasör: Download/IPTV")
+                    }
+                }
+
+                _state.update {
+                    it.copy(
+                        loading = false,
+                        progressPercent = 100,
+                        progressStep = null,
+                        etaSeconds = null,
+                        reportText = report,
+                        workingUrls = working.toList(),
+                        failingUrls = failing.toList(),
+                        lastRunSaved = true
+                    )
+                }
             } catch (t: Throwable) {
-                _state.update { it.copy(loading = false, progressPercent = 0, progressStep = null, etaSeconds = null, errorMessage = t.message ?: "Hata oluştu") }
+                _state.update {
+                    it.copy(
+                        loading = false,
+                        progressPercent = 0,
+                        progressStep = null,
+                        etaSeconds = null,
+                        errorMessage = t.message ?: "Hata oluştu",
+                        workingUrls = emptyList(),
+                        failingUrls = emptyList(),
+                        lastRunSaved = false
+                    )
+                }
             }
         }
     }
@@ -206,7 +299,10 @@ class AutoViewModel @Inject constructor(
         return Playlist(channels = channels, endDate = playlist.endDate)
     }
 
-    private suspend fun runStreamTest(playlist: Playlist): Pair<Boolean, Int> = withContext(Dispatchers.IO) {
+    private suspend fun runStreamTestDetailed(
+        playlist: Playlist,
+        onTestUpdate: (tested: Int, total: Int) -> Unit
+    ): Pair<Boolean, Int> = withContext(Dispatchers.IO) {
         val candidates = playlist.channels
             .asSequence()
             .map { it.url }
@@ -221,9 +317,11 @@ class AutoViewModel @Inject constructor(
             candidates.shuffled(Random(System.currentTimeMillis())).take(3)
         }
 
+        val total = sample.size
         var tested = 0
         for (url in sample) {
             tested += 1
+            onTestUpdate(tested, total)
             if (streamTester.isPlayable(url)) return@withContext true to tested
         }
 

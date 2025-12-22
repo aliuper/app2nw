@@ -9,6 +9,8 @@
         android:name=".AlibabaApp"
         android:allowBackup="true"
         android:label="Alibaba"
+        android:usesCleartextTraffic="true"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
         android:theme="@style/Theme.Alibaba">
 
