@@ -7,7 +7,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import androidx.work.getWorkInfoByIdFlow
+import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.alibaba.core.common.PlaylistTextFormatter
@@ -23,15 +23,19 @@ import com.alibaba.domain.service.StreamTester
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.channels.awaitClose
+import java.util.UUID
 import kotlin.random.Random
 import javax.inject.Inject
-import java.util.UUID
 
 @HiltViewModel
 class AutoViewModel @Inject constructor(
@@ -146,8 +150,19 @@ class AutoViewModel @Inject constructor(
             val wm = WorkManager.getInstance(appContext)
             wm.enqueueUniqueWork("auto_run_$id", ExistingWorkPolicy.REPLACE, request)
 
-            wm.getWorkInfoByIdFlow(request.id).collectLatest { info ->
+            callbackFlow {
+                val liveData = wm.getWorkInfoByIdLiveData(request.id)
+                val observer = Observer<WorkInfo?> { info ->
+                    trySend(info)
+                }
+
+                liveData.observeForever(observer)
+                awaitClose { liveData.removeObserver(observer) }
+            }.collectLatest { info ->
                 if (info == null) return@collectLatest
+
+                val progress = info.progress
+                val output = info.outputData
 
                 when (info.state) {
                     WorkInfo.State.ENQUEUED, WorkInfo.State.RUNNING -> {

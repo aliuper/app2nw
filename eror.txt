@@ -1,20 +1,18 @@
-> Task :feature:manual:kaptDebugKotlin
-> Task :feature:auto:kaptDebugKotlin
 > Task :app:checkDebugDuplicateClasses
 > Task :app:mergeDebugStartupProfile
 
-e: file:///home/runner/work/app2nw/app2nw/data/src/main/java/com/alibaba/data/service/DownloadsOutputSaver.kt:96:9 Type mismatch: inferred type is Unit but SavedOutput was expected
-> Task :data:compileDebugKotlin FAILED
+e: file:///home/runner/work/app2nw/app2nw/feature/auto/src/main/java/com/alibaba/feature/auto/AutoViewModel.kt:10:22 Unresolved reference: getWorkInfoByIdFlow
+> Task :feature:auto:compileDebugKotlin FAILED
 
-> Task :feature:auto:compileDebugKotlin
+> Task :data:compileDebugKotlin
 > Task :feature:manual:compileDebugKotlin
 > Task :app:mergeExtDexDebug
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/__run-1766416091537.json
 
-gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/__run-1766392893415.json
 FAILURE: Build failed with an exception.
 
 * What went wrong:
-Execution failed for task ':data:compileDebugKotlin'.
+Execution failed for task ':feature:auto:compileDebugKotlin'.
 > A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
    > Compilation error. See log for more details
 
@@ -24,6 +22,6 @@ Execution failed for task ':data:compileDebugKotlin'.
 > Run with --scan to get full insights.
 > Get more help at https://help.gradle.org.
 
-BUILD FAILED in 1m 58s
+BUILD FAILED in 2m 11s
 129 actionable tasks: 129 executed
 Error: Process completed with exit code 1.
