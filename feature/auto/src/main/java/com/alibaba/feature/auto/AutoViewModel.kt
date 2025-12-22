@@ -3,15 +3,10 @@ package com.alibaba.feature.auto
 import android.os.SystemClock
 import android.content.Context
 import android.os.Build
-import androidx.work.Data
-import androidx.work.ExistingWorkPolicy
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkInfo
-import androidx.work.WorkManager
-import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.alibaba.core.common.PlaylistTextFormatter
+import com.alibaba.core.common.OutputFormatDetector
 import com.alibaba.core.common.isGroupInCountries
 import com.alibaba.core.common.extractIptvUrls
 import com.alibaba.core.common.isAdultGroup
@@ -29,11 +24,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.channels.awaitClose
 import java.util.UUID
 import kotlin.random.Random
 import javax.inject.Inject
@@ -113,14 +105,11 @@ class AutoViewModel @Inject constructor(
 
         viewModelScope.launch {
             progressStartMs = SystemClock.elapsedRealtime()
-            val id = UUID.randomUUID().toString()
-
             _state.update { s ->
                 s.copy(
                     loading = true,
-                    backgroundWorkId = id,
                     progressPercent = 0,
-                    progressStep = "Arka plan işi başlatılıyor",
+                    progressStep = "Başlıyor",
                     etaSeconds = null,
                     errorMessage = null,
                     savedFiles = emptyList(),
@@ -134,167 +123,207 @@ class AutoViewModel @Inject constructor(
                 )
             }
 
-            val request = OneTimeWorkRequestBuilder<AutoRunWorker>()
-                .addTag("auto_run")
-                .setInputData(
-                    Data.Builder()
-                        .putStringArray(AutoRunWorker.KEY_URLS, urls.toTypedArray())
-                        .putStringArray(AutoRunWorker.KEY_COUNTRIES, countries.toTypedArray())
-                        .putBoolean(AutoRunWorker.KEY_MERGE_INTO_SINGLE, state.value.mergeIntoSingle)
-                        .putString(AutoRunWorker.KEY_FOLDER_URI, state.value.outputFolderUriString)
-                        .putBoolean(AutoRunWorker.KEY_AUTO_DETECT_FORMAT, state.value.autoDetectFormat)
-                        .putInt(AutoRunWorker.KEY_OUTPUT_FORMAT, state.value.outputFormat.ordinal)
-                        .build()
-                )
-                .build()
+            val mergeIntoSingle = state.value.mergeIntoSingle
+            val folderUriString = state.value.outputFolderUriString
+            val autoDetectFormat = state.value.autoDetectFormat
+            val chosenOutputFormat = state.value.outputFormat
 
-            val wm = WorkManager.getInstance(appContext)
-            wm.enqueueUniqueWork("auto_run_$id", ExistingWorkPolicy.REPLACE, request)
+            val mergedChannels = ArrayList<Channel>(16_384)
+            var mergedEndDate: String? = null
 
-            callbackFlow {
-                val liveData = wm.getWorkInfoByIdLiveData(request.id)
-                val observer = Observer<WorkInfo?> { info ->
-                    trySend(info)
+            val usedGroupNames = linkedMapOf<String, Int>()
+            val renameSamples = ArrayList<String>(16)
+
+            val working = ArrayList<String>(urls.size)
+            val failing = ArrayList<String>(urls.size)
+            val savedNames = ArrayList<String>(urls.size + 1)
+            val savedUris = ArrayList<String>(urls.size + 1)
+
+            for ((index, url) in urls.withIndex()) {
+                val header = "${index + 1}/${urls.size}"
+                val basePercent = ((index * 100) / maxOf(1, urls.size)).coerceIn(0, 99)
+                setProgress(percent = basePercent, step = "$header - İndiriliyor")
+                _state.update { s ->
+                    val items = s.extractedUrls.toMutableList()
+                    if (index in items.indices) {
+                        items[index] = items[index].copy(status = "İndiriliyor", success = null, testedStreams = 0)
+                    }
+                    s.copy(extractedUrls = items)
                 }
 
-                liveData.observeForever(observer)
-                awaitClose { liveData.removeObserver(observer) }
-            }.collectLatest { info ->
-                if (info == null) return@collectLatest
+                try {
+                    val playlist = playlistRepository.fetchPlaylist(url)
 
-                val progress = info.progress
-                val output = info.outputData
+                    setProgress(percent = (basePercent + 3).coerceAtMost(99), step = "$header - Stream testi")
+                    _state.update { s ->
+                        val items = s.extractedUrls.toMutableList()
+                        if (index in items.indices) {
+                            items[index] = items[index].copy(status = "Stream testi", success = null)
+                        }
+                        s.copy(extractedUrls = items)
+                    }
 
-                when (info.state) {
-                    WorkInfo.State.ENQUEUED, WorkInfo.State.RUNNING -> {
-                        val p = info.progress
-                        val percent = p.getInt(AutoRunWorker.P_PERCENT, 0)
-                        val step = p.getString(AutoRunWorker.P_STEP)
-                        val index = p.getInt(AutoRunWorker.P_INDEX, -1)
-                        val status = p.getString(AutoRunWorker.P_STATUS)
-                        val tested = p.getInt(AutoRunWorker.P_TESTED, 0)
-                        val hasSuccess = p.getBoolean(AutoRunWorker.P_HAS_SUCCESS, false)
-                        val success = if (hasSuccess) p.getBoolean(AutoRunWorker.P_SUCCESS, false) else null
+                    val (ok, testedCount, totalCount) = runStreamTestDetailed(playlist) { tested, total ->
+                        _state.update { s ->
+                            val items = s.extractedUrls.toMutableList()
+                            if (index in items.indices) {
+                                items[index] = items[index].copy(
+                                    status = "Test ${tested}/${total}",
+                                    success = null,
+                                    testedStreams = tested
+                                )
+                            }
+                            s.copy(extractedUrls = items)
+                        }
+                    }
+
+                    if (!ok) {
+                        failing += url
+                        _state.update { s ->
+                            val items = s.extractedUrls.toMutableList()
+                            if (index in items.indices) {
+                                items[index] = items[index].copy(status = "Stream testi başarısız", success = false, testedStreams = testedCount)
+                            }
+                            s.copy(extractedUrls = items)
+                        }
+                        continue
+                    }
+
+                    val filtered = filterPlaylistByCountries(playlist, countries)
+                    if (filtered.channels.isEmpty()) {
+                        failing += url
+                        _state.update { s ->
+                            val items = s.extractedUrls.toMutableList()
+                            if (index in items.indices) {
+                                items[index] = items[index].copy(status = "Seçilen ülke(ler) için kanal yok", success = false, testedStreams = totalCount)
+                            }
+                            s.copy(extractedUrls = items)
+                        }
+                        continue
+                    }
+
+                    working += url
+
+                    if (mergeIntoSingle) {
+                        val renamed = mergeWithBackupNames(
+                            channels = filtered.channels,
+                            usedGroupNames = usedGroupNames,
+                            renameSamples = renameSamples
+                        )
+                        mergedChannels += renamed
+                        mergedEndDate = mergedEndDate ?: filtered.endDate
+                        _state.update { s ->
+                            val items = s.extractedUrls.toMutableList()
+                            if (index in items.indices) {
+                                items[index] = items[index].copy(status = "Birleştirildi", success = true, testedStreams = totalCount)
+                            }
+                            s.copy(extractedUrls = items)
+                        }
+                    } else {
+                        setProgress(percent = (basePercent + 6).coerceAtMost(99), step = "$header - Kaydediliyor")
+                        val format = if (autoDetectFormat) OutputFormatDetector.detect(filtered) else chosenOutputFormat
+                        val content = withContext(Dispatchers.Default) {
+                            val groups = filtered.channels.map { it.group ?: "Ungrouped" }.toSet()
+                            PlaylistTextFormatter.format(filtered, groups, format)
+                        }
+
+                        val saved = if (folderUriString.isNullOrBlank()) {
+                            outputSaver.saveToDownloads(
+                                sourceUrl = url,
+                                format = format,
+                                content = content,
+                                maybeEndDate = filtered.endDate
+                            )
+                        } else {
+                            outputSaver.saveToFolder(
+                                folderUriString = folderUriString,
+                                sourceUrl = url,
+                                format = format,
+                                content = content,
+                                maybeEndDate = filtered.endDate
+                            )
+                        }
+
+                        savedNames += saved.displayName
+                        savedUris += saved.uriString
 
                         _state.update { s ->
                             val items = s.extractedUrls.toMutableList()
                             if (index in items.indices) {
-                                val old = items[index]
-                                items[index] = old.copy(
-                                    status = status ?: old.status,
-                                    success = success,
-                                    testedStreams = tested
-                                )
+                                items[index] = items[index].copy(status = "Kaydedildi", success = true, testedStreams = totalCount)
                             }
-                            s.copy(
-                                loading = true,
-                                progressPercent = percent,
-                                progressStep = step,
-                                extractedUrls = items.toList()
-                            )
+                            s.copy(extractedUrls = items)
                         }
                     }
-
-                    WorkInfo.State.SUCCEEDED -> {
-                        val out = info.outputData
-                        val report = out.getString(AutoRunWorker.KEY_REPORT)
-                        val workingUrls = out.getStringArray(AutoRunWorker.KEY_WORKING_URLS)?.toList().orEmpty()
-                        val failingUrls = out.getStringArray(AutoRunWorker.KEY_FAILING_URLS)?.toList().orEmpty()
-                        val savedNames = out.getStringArray(AutoRunWorker.KEY_SAVED_NAMES)?.toList().orEmpty()
-                        val savedUris = out.getStringArray(AutoRunWorker.KEY_SAVED_URIS)?.toList().orEmpty()
-                        val saved = savedNames.zip(savedUris).map { (n, u) -> SavedFileItem(n, u) }
-
-                        _state.update { s ->
-                            s.copy(
-                                loading = false,
-                                progressPercent = 100,
-                                progressStep = null,
-                                etaSeconds = null,
-                                reportText = report,
-                                workingUrls = workingUrls,
-                                failingUrls = failingUrls,
-                                savedFiles = saved,
-                                lastRunSaved = true
-                            )
+                } catch (t: Throwable) {
+                    failing += url
+                    _state.update { s ->
+                        val items = s.extractedUrls.toMutableList()
+                        if (index in items.indices) {
+                            items[index] = items[index].copy(status = t.message ?: "Hata", success = false, testedStreams = 0)
                         }
+                        s.copy(extractedUrls = items)
                     }
-
-                    WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> {
-                        val error = info.outputData.getString(AutoRunWorker.KEY_ERROR)
-                        _state.update { s ->
-                            val lastStep = s.progressStep
-                            val msg = when (info.state) {
-                                WorkInfo.State.CANCELLED -> {
-                                    buildString {
-                                        append("İş iptal edildi")
-                                        if (!lastStep.isNullOrBlank()) {
-                                            append(" (Son adım: ")
-                                            append(lastStep)
-                                            append(")")
-                                        }
-                                        append(". Tekrar çalıştırdıysan önceki iş iptal edilmiş olabilir. Arka planda kapanıyorsa pil optimizasyonunu kapat.")
-                                    }
-                                }
-
-                                else -> {
-                                    if (!error.isNullOrBlank()) {
-                                        error
-                                    } else {
-                                        val stopReasonText = if (Build.VERSION.SDK_INT >= 31) {
-                                            when (info.stopReason) {
-                                                WorkInfo.STOP_REASON_APP_STANDBY -> "APP_STANDBY"
-                                                WorkInfo.STOP_REASON_BACKGROUND_RESTRICTION -> "BACKGROUND_RESTRICTION"
-                                                WorkInfo.STOP_REASON_CANCELLED_BY_APP -> "CANCELLED_BY_APP"
-                                                WorkInfo.STOP_REASON_CONSTRAINT_BATTERY_NOT_LOW -> "CONSTRAINT_BATTERY_NOT_LOW"
-                                                WorkInfo.STOP_REASON_CONSTRAINT_CHARGING -> "CONSTRAINT_CHARGING"
-                                                WorkInfo.STOP_REASON_CONSTRAINT_CONNECTIVITY -> "CONSTRAINT_CONNECTIVITY"
-                                                WorkInfo.STOP_REASON_CONSTRAINT_DEVICE_IDLE -> "CONSTRAINT_DEVICE_IDLE"
-                                                WorkInfo.STOP_REASON_CONSTRAINT_STORAGE_NOT_LOW -> "CONSTRAINT_STORAGE_NOT_LOW"
-                                                WorkInfo.STOP_REASON_DEVICE_STATE -> "DEVICE_STATE"
-                                                WorkInfo.STOP_REASON_PREEMPT -> "PREEMPT"
-                                                WorkInfo.STOP_REASON_QUOTA -> "QUOTA"
-                                                WorkInfo.STOP_REASON_SYSTEM_PROCESSING -> "SYSTEM_PROCESSING"
-                                                WorkInfo.STOP_REASON_TIMEOUT -> "TIMEOUT"
-                                                WorkInfo.STOP_REASON_UNKNOWN -> "UNKNOWN"
-                                                else -> "${info.stopReason}"
-                                            }
-                                        } else {
-                                            null
-                                        }
-
-                                        buildString {
-                                            append("İş başarısız")
-                                            append(" (state=")
-                                            append(info.state.name)
-                                            append(", attempt=")
-                                            append(info.runAttemptCount)
-                                            append(")")
-                                            if (!lastStep.isNullOrBlank()) {
-                                                append("\nSon adım: ")
-                                                append(lastStep)
-                                            }
-                                            if (!stopReasonText.isNullOrBlank()) {
-                                                append("\nstopReason: ")
-                                                append(stopReasonText)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            s.copy(
-                                loading = false,
-                                progressPercent = 0,
-                                progressStep = null,
-                                etaSeconds = null,
-                                errorMessage = msg,
-                                lastRunSaved = false
-                            )
-                        }
-                    }
-
-                    else -> Unit
                 }
+            }
+
+            if (mergeIntoSingle) {
+                setProgress(percent = 95, step = "Çıktı hazırlanıyor")
+                val merged = Playlist(channels = mergedChannels, endDate = mergedEndDate)
+                val format = if (autoDetectFormat) OutputFormatDetector.detect(merged) else chosenOutputFormat
+                val content = withContext(Dispatchers.Default) {
+                    val groups = merged.channels.map { it.group ?: "Ungrouped" }.toSet()
+                    PlaylistTextFormatter.format(merged, groups, format)
+                }
+
+                val saved = if (folderUriString.isNullOrBlank()) {
+                    outputSaver.saveToDownloads(
+                        sourceUrl = "alibaba",
+                        format = format,
+                        content = content,
+                        maybeEndDate = merged.endDate
+                    )
+                } else {
+                    outputSaver.saveToFolder(
+                        folderUriString = folderUriString,
+                        sourceUrl = "alibaba",
+                        format = format,
+                        content = content,
+                        maybeEndDate = merged.endDate
+                    )
+                }
+
+                savedNames += saved.displayName
+                savedUris += saved.uriString
+            }
+
+            val report = buildString {
+                append("Bitti. Çalışan: ")
+                append(working.size)
+                append(" | Çalışmayan: ")
+                append(failing.size)
+                if (!folderUriString.isNullOrBlank()) {
+                    append(" | Klasör: ")
+                    append(folderUriString)
+                } else {
+                    append(" | Klasör: Download/IPTV")
+                }
+            }
+
+            val saved = savedNames.zip(savedUris).map { (n, u) -> SavedFileItem(n, u) }
+
+            _state.update {
+                it.copy(
+                    loading = false,
+                    progressPercent = 100,
+                    progressStep = null,
+                    etaSeconds = null,
+                    reportText = report,
+                    workingUrls = working,
+                    failingUrls = failing,
+                    savedFiles = saved,
+                    lastRunSaved = true
+                )
             }
         }
     }
@@ -311,14 +340,14 @@ class AutoViewModel @Inject constructor(
     private suspend fun runStreamTestDetailed(
         playlist: Playlist,
         onTestUpdate: (tested: Int, total: Int) -> Unit
-    ): Pair<Boolean, Int> = withContext(Dispatchers.IO) {
+    ): Triple<Boolean, Int, Int> = withContext(Dispatchers.IO) {
         val candidates = playlist.channels
             .asSequence()
             .map { it.url }
             .distinct()
             .toList()
 
-        if (candidates.isEmpty()) return@withContext false to 0
+        if (candidates.isEmpty()) return@withContext Triple(false, 0, 0)
 
         val max = 10
         val sample = if (candidates.size <= max) {
@@ -332,10 +361,10 @@ class AutoViewModel @Inject constructor(
         for (url in sample) {
             tested += 1
             onTestUpdate(tested, total)
-            if (streamTester.isPlayable(url)) return@withContext true to tested
+            if (streamTester.isPlayable(url)) return@withContext Triple(true, tested, total)
         }
 
-        false to tested
+        Triple(false, tested, total)
     }
 
     private fun mergeWithBackupNames(
