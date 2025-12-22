@@ -9,6 +9,7 @@ import com.alibaba.core.common.groupCountryCode
 import com.alibaba.core.common.isAdultGroup
 import com.alibaba.domain.model.OutputFormat
 import com.alibaba.domain.model.Playlist
+import com.alibaba.domain.model.Channel
 import com.alibaba.domain.repo.PlaylistRepository
 import com.alibaba.domain.service.OutputSaver
 import com.alibaba.domain.service.StreamTester
@@ -36,6 +37,14 @@ class AutoViewModel @Inject constructor(
 
     fun onInputChange(value: String) {
         _state.update { it.copy(inputText = value, errorMessage = null) }
+    }
+
+    fun nextStep() {
+        _state.update { s -> s.copy(step = (s.step + 1).coerceAtMost(3), errorMessage = null) }
+    }
+
+    fun prevStep() {
+        _state.update { s -> s.copy(step = (s.step - 1).coerceAtLeast(0), errorMessage = null) }
     }
 
     fun extract() {
@@ -80,12 +89,26 @@ class AutoViewModel @Inject constructor(
 
         viewModelScope.launch {
             progressStartMs = SystemClock.elapsedRealtime()
-            _state.update { it.copy(loading = true, progressPercent = 0, progressStep = "Başlıyor", etaSeconds = null, errorMessage = null, savedFiles = emptyList(), outputPreview = null) }
+            _state.update {
+                it.copy(
+                    loading = true,
+                    progressPercent = 0,
+                    progressStep = "Başlıyor",
+                    etaSeconds = null,
+                    errorMessage = null,
+                    savedFiles = emptyList(),
+                    outputPreview = null,
+                    mergeRenameWarning = null
+                )
+            }
 
             try {
                 val results = ArrayList<UrlItem>(urls.size)
-                val mergedChannels = ArrayList<com.alibaba.domain.model.Channel>(16_384)
+                val mergedChannels = ArrayList<Channel>(16_384)
                 var mergedEndDate: String? = null
+
+                val usedGroupNames = linkedMapOf<String, Int>()
+                val renameSamples = ArrayList<String>(16)
 
                 for ((index, url) in urls.withIndex()) {
                     setProgress(percent = ((index * 100) / urls.size).coerceIn(0, 99), step = "İndiriliyor")
@@ -95,16 +118,23 @@ class AutoViewModel @Inject constructor(
                         val filtered = filterPlaylistByCountries(playlist, countries)
 
                         setProgress(percent = ((index * 100) / urls.size).coerceIn(0, 99), step = "Stream testi")
-                        val ok = runStreamTest(filtered)
+                        val test = runStreamTest(filtered)
+                        val ok = test.first
+                        val testedCount = test.second
                         if (!ok) {
-                            results += UrlItem(url = url, status = "Stream testi başarısız", success = false)
+                            results += UrlItem(url = url, status = "Stream testi başarısız", success = false, testedStreams = testedCount)
                             continue
                         }
 
-                        results += UrlItem(url = url, status = "OK", success = true)
+                        results += UrlItem(url = url, status = "OK", success = true, testedStreams = testedCount)
 
                         if (state.value.mergeIntoSingle) {
-                            mergedChannels += filtered.channels
+                            val renamed = mergeWithBackupNames(
+                                channels = filtered.channels,
+                                usedGroupNames = usedGroupNames,
+                                renameSamples = renameSamples
+                            )
+                            mergedChannels += renamed
                             mergedEndDate = mergedEndDate ?: filtered.endDate
                         } else {
                             val content = withContext(Dispatchers.Default) {
@@ -129,6 +159,15 @@ class AutoViewModel @Inject constructor(
                 }
 
                 if (state.value.mergeIntoSingle) {
+                    if (renameSamples.isNotEmpty()) {
+                        val preview = renameSamples.take(10).joinToString("\n")
+                        _state.update {
+                            it.copy(
+                                mergeRenameWarning = "Aynı isimli grup(lar) bulundu. Çakışan gruplar otomatik olarak Yedek 1..N şeklinde adlandırıldı:\n${preview}"
+                            )
+                        }
+                    }
+
                     setProgress(percent = 95, step = "Çıktı hazırlanıyor")
                     val merged = Playlist(channels = mergedChannels, endDate = mergedEndDate)
                     val content = withContext(Dispatchers.Default) {
@@ -167,26 +206,59 @@ class AutoViewModel @Inject constructor(
         return Playlist(channels = channels, endDate = playlist.endDate)
     }
 
-    private suspend fun runStreamTest(playlist: Playlist): Boolean = withContext(Dispatchers.IO) {
+    private suspend fun runStreamTest(playlist: Playlist): Pair<Boolean, Int> = withContext(Dispatchers.IO) {
         val candidates = playlist.channels
             .asSequence()
             .map { it.url }
             .distinct()
             .toList()
 
-        if (candidates.isEmpty()) return@withContext false
+        if (candidates.isEmpty()) return@withContext false to 0
 
-        val sample = if (candidates.size <= 2) {
-            candidates
+        val sample = if (candidates.size <= 3) {
+            candidates.take(3)
         } else {
-            candidates.shuffled(Random(System.currentTimeMillis())).take(2)
+            candidates.shuffled(Random(System.currentTimeMillis())).take(3)
         }
 
+        var tested = 0
         for (url in sample) {
-            if (streamTester.isPlayable(url)) return@withContext true
+            tested += 1
+            if (streamTester.isPlayable(url)) return@withContext true to tested
         }
 
-        false
+        false to tested
+    }
+
+    private fun mergeWithBackupNames(
+        channels: List<Channel>,
+        usedGroupNames: MutableMap<String, Int>,
+        renameSamples: MutableList<String>
+    ): List<Channel> {
+        if (channels.isEmpty()) return emptyList()
+
+        val groupMapping = LinkedHashMap<String, String>()
+        for (group in channels.asSequence().map { it.group ?: "Ungrouped" }.distinct()) {
+            val currentIndex = usedGroupNames[group]
+            if (currentIndex == null) {
+                usedGroupNames[group] = 0
+                groupMapping[group] = group
+            } else {
+                val next = currentIndex + 1
+                usedGroupNames[group] = next
+                val newGroup = "${group} Yedek ${next}"
+                if (renameSamples.size < 25) {
+                    renameSamples += "- ${group} -> ${newGroup}"
+                }
+                groupMapping[group] = newGroup
+            }
+        }
+
+        return channels.map { c ->
+            val originalGroup = c.group ?: "Ungrouped"
+            val mapped = groupMapping[originalGroup] ?: originalGroup
+            if (mapped == originalGroup) c else c.copy(group = mapped)
+        }
     }
 
     private fun setProgress(percent: Int, step: String?) {

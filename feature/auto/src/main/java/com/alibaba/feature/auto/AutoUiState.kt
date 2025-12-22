@@ -5,7 +5,8 @@ import com.alibaba.domain.model.OutputFormat
 data class UrlItem(
     val url: String,
     val status: String? = null,
-    val success: Boolean? = null
+    val success: Boolean? = null,
+    val testedStreams: Int = 0
 )
 
 data class SavedFileItem(
@@ -14,11 +15,13 @@ data class SavedFileItem(
 )
 
 data class AutoUiState(
+    val step: Int = 0,
     val inputText: String = "",
     val extractedUrls: List<UrlItem> = emptyList(),
     val selectedCountries: Set<String> = setOf("TR"),
     val mergeIntoSingle: Boolean = true,
     val outputFormat: OutputFormat = OutputFormat.M3U8,
+    val mergeRenameWarning: String? = null,
     val loading: Boolean = false,
     val progressPercent: Int = 0,
     val progressStep: String? = null,
