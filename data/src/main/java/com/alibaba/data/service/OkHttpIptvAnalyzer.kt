@@ -406,27 +406,35 @@ class OkHttpIptvAnalyzer @Inject constructor(
     }
 
     private suspend fun testFirstFrameExo(url: String, timeoutMs: Long): Boolean {
-        return withTimeoutOrNull(timeoutMs) {
-            val player = ExoPlayer.Builder(context).build()
-            try {
-                val deferred = CompletableDeferred<Boolean>()
-                val listener = object : Player.Listener {
-                    override fun onRenderedFirstFrame() {
-                        if (!deferred.isCompleted) deferred.complete(true)
-                    }
+        return withContext(Dispatchers.Main) {
+            withTimeoutOrNull(timeoutMs) {
+                val player = ExoPlayer.Builder(context).build()
+                try {
+                    val deferred = CompletableDeferred<Boolean>()
+                    val listener = object : Player.Listener {
+                        override fun onRenderedFirstFrame() {
+                            if (!deferred.isCompleted) deferred.complete(true)
+                        }
 
-                    override fun onPlayerError(error: PlaybackException) {
-                        if (!deferred.isCompleted) deferred.complete(false)
+                        override fun onPlaybackStateChanged(state: Int) {
+                            if (state == Player.STATE_READY && !deferred.isCompleted) {
+                                deferred.complete(true)
+                            }
+                        }
+
+                        override fun onPlayerError(error: PlaybackException) {
+                            if (!deferred.isCompleted) deferred.complete(false)
+                        }
                     }
+                    player.addListener(listener)
+                    player.setMediaItem(MediaItem.fromUri(url))
+                    player.prepare()
+                    player.playWhenReady = true
+                    deferred.await()
+                } finally {
+                    player.release()
                 }
-                player.addListener(listener)
-                player.setMediaItem(MediaItem.fromUri(url))
-                player.prepare()
-                player.playWhenReady = true
-                deferred.await()
-            } finally {
-                player.release()
-            }
-        } ?: false
+            } ?: false
+        }
     }
 }
