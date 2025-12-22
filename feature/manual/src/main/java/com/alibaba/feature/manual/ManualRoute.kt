@@ -13,13 +13,25 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -69,14 +81,22 @@ fun ManualScreen(
     val context = LocalContext.current
     val scroll = rememberScrollState()
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(scroll)
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Text(text = "Manuel Mod", style = MaterialTheme.typography.headlineSmall)
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(text = "Manuel") }
+            )
+        },
+        modifier = modifier.fillMaxSize()
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scroll)
+                .padding(padding)
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
 
         OutlinedTextField(
             value = state.url,
@@ -88,6 +108,8 @@ fun ManualScreen(
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Button(onClick = onAnalyze, enabled = !state.loading) {
+                Icon(imageVector = Icons.Filled.Search, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(text = "Analiz Et")
             }
 
@@ -103,19 +125,39 @@ fun ManualScreen(
         }
 
         if (state.progressStep != null) {
-            Text(text = state.progressStep)
-            LinearProgressIndicator(
-                progress = { (state.progressPercent.coerceIn(0, 100) / 100f) },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Text(text = "%${state.progressPercent}")
-            state.etaSeconds?.let { eta ->
-                Text(text = "Kalan: ${eta}s")
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(imageVector = Icons.Filled.Bolt, contentDescription = null)
+                        Text(text = state.progressStep, style = MaterialTheme.typography.titleMedium)
+                    }
+                    LinearProgressIndicator(
+                        progress = { (state.progressPercent.coerceIn(0, 100) / 100f) },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text(text = "%${state.progressPercent}")
+                    state.etaSeconds?.let { eta ->
+                        Text(text = "Kalan: ${eta}s")
+                    }
+                }
             }
         }
 
         state.errorMessage?.let { msg ->
-            Text(text = msg, color = MaterialTheme.colorScheme.error)
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Error,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                    Text(text = msg, color = MaterialTheme.colorScheme.error)
+                }
+            }
         }
 
         if (state.groups.isNotEmpty()) {
@@ -176,6 +218,8 @@ fun ManualScreen(
                 onClick = onGenerate,
                 enabled = !state.loading && state.groups.any { it.selected }
             ) {
+                Icon(imageVector = Icons.Filled.Bolt, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(text = "Çıktı Üret")
             }
         }
@@ -185,11 +229,15 @@ fun ManualScreen(
             Text(text = "Çıktı", style = MaterialTheme.typography.titleMedium)
 
             Button(onClick = { clipboard.setText(AnnotatedString(text)) }) {
+                Icon(imageVector = Icons.Filled.ContentCopy, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(text = "Kopyala")
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Button(onClick = onSave, enabled = !state.loading) {
+                    Icon(imageVector = Icons.Filled.Save, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(text = "Download/IPTV'ye Kaydet")
                 }
 
@@ -202,6 +250,8 @@ fun ManualScreen(
                         context.startActivity(Intent.createChooser(intent, null))
                     }
                 ) {
+                    Icon(imageVector = Icons.Filled.Share, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(text = "Paylaş")
                 }
             }
@@ -222,6 +272,8 @@ fun ManualScreen(
                             context.startActivity(intent)
                         }
                     ) {
+                        Icon(imageVector = Icons.Filled.OpenInNew, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(text = "Aç")
                     }
                     Button(
@@ -235,6 +287,8 @@ fun ManualScreen(
                             context.startActivity(Intent.createChooser(intent, null))
                         }
                     ) {
+                        Icon(imageVector = Icons.Filled.Share, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
                         Text(text = "Dosyayı Paylaş")
                     }
                 }
@@ -244,6 +298,7 @@ fun ManualScreen(
                 text = text,
                 style = MaterialTheme.typography.bodySmall
             )
+        }
         }
     }
 }

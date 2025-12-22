@@ -8,11 +8,13 @@ import androidx.navigation.compose.rememberNavController
 import com.alibaba.feature.auto.AutoRoute
 import com.alibaba.feature.home.HomeScreen
 import com.alibaba.feature.manual.ManualRoute
+import com.alibaba.settings.SettingsScreen
 
 private object Routes {
     const val HOME = "home"
     const val MANUAL = "manual"
     const val AUTO = "auto"
+    const val SETTINGS = "settings"
 }
 
 @Composable
@@ -27,7 +29,8 @@ fun AlibabaNavHost(modifier: Modifier = Modifier) {
         composable(Routes.HOME) {
             HomeScreen(
                 onManualClick = { navController.navigate(Routes.MANUAL) },
-                onAutoClick = { navController.navigate(Routes.AUTO) }
+                onAutoClick = { navController.navigate(Routes.AUTO) },
+                onSettingsClick = { navController.navigate(Routes.SETTINGS) }
             )
         }
 
@@ -37,6 +40,10 @@ fun AlibabaNavHost(modifier: Modifier = Modifier) {
 
         composable(Routes.AUTO) {
             AutoRoute()
+        }
+
+        composable(Routes.SETTINGS) {
+            SettingsScreen(onBack = { navController.popBackStack() })
         }
     }
 }

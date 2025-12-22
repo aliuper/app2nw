@@ -2,6 +2,7 @@ package com.alibaba.feature.auto
 
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -19,15 +20,30 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -106,122 +122,173 @@ fun AutoScreen(
         else -> "4/${stepCount} Tek/Çok Dosya"
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(scroll)
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Text(text = "Otomatik Mod", style = MaterialTheme.typography.headlineSmall)
-        Text(text = stepTitle, style = MaterialTheme.typography.titleMedium)
-        LinearProgressIndicator(
-            progress = { ((stepIndex + 1) / stepCount.toFloat()).coerceIn(0f, 1f) },
-            modifier = Modifier.fillMaxWidth()
-        )
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text(text = "Otomatik") },
+                actions = {
+                    IconButton(
+                        onClick = {
+                            Toast.makeText(context, "Ayarlar yakında", Toast.LENGTH_SHORT).show()
+                        }
+                    ) {
+                        Icon(imageVector = Icons.Filled.Tune, contentDescription = "Ayarlar")
+                    }
+                }
+            )
+        },
+        modifier = modifier.fillMaxSize()
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scroll)
+                .padding(padding)
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(text = stepTitle, style = MaterialTheme.typography.titleMedium)
+            LinearProgressIndicator(
+                progress = { ((stepIndex + 1) / stepCount.toFloat()).coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth()
+            )
 
-        state.progressStep?.let {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(text = it)
-                    LinearProgressIndicator(
-                        progress = { (state.progressPercent.coerceIn(0, 100) / 100f) },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(text = "%${state.progressPercent}")
-                        state.etaSeconds?.let { eta -> Text(text = "Kalan: ${eta}s") }
+            state.progressStep?.let { step ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(imageVector = Icons.Filled.Bolt, contentDescription = null)
+                            Text(text = step, style = MaterialTheme.typography.titleMedium)
+                        }
+                        LinearProgressIndicator(
+                            progress = { (state.progressPercent.coerceIn(0, 100) / 100f) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(text = "%${state.progressPercent}")
+                            state.etaSeconds?.let { eta -> Text(text = "Kalan: ${eta}s") }
+                        }
                     }
                 }
             }
-        }
 
-        state.errorMessage?.let { Text(text = it, color = MaterialTheme.colorScheme.error) }
+            state.errorMessage?.let { msg ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Error,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                        Text(text = msg, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
 
-        if (state.loading && state.extractedUrls.isNotEmpty()) {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(text = "İlerleme", style = MaterialTheme.typography.titleMedium)
-                    state.extractedUrls.forEach { item ->
-                        val statusColor = when (item.success) {
-                            true -> MaterialTheme.colorScheme.primary
-                            false -> MaterialTheme.colorScheme.error
-                            null -> MaterialTheme.colorScheme.onSurface
-                        }
-                        val suffix = buildString {
-                            item.status?.let { append(" - "); append(it) }
-                            if (item.testedStreams > 0) {
-                                append(" (${item.testedStreams} test)")
+            if (state.loading && state.extractedUrls.isNotEmpty()) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(text = "İlerleme", style = MaterialTheme.typography.titleMedium)
+                        state.extractedUrls.forEachIndexed { index, item ->
+                            val statusColor = when (item.success) {
+                                true -> MaterialTheme.colorScheme.primary
+                                false -> MaterialTheme.colorScheme.error
+                                null -> MaterialTheme.colorScheme.onSurface
                             }
-                        }
-                        Text(text = "- ${item.url}", color = statusColor)
-                        if (suffix.isNotBlank()) {
-                            Text(text = suffix.trim(), style = MaterialTheme.typography.bodySmall, color = statusColor)
-                        }
-                    }
-                }
-            }
-        }
-
-        when (stepIndex) {
-            0 -> {
-                OutlinedTextField(
-                    value = state.inputText,
-                    onValueChange = onInputChange,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(180.dp),
-                    label = { Text(text = "Metin / Linkler") },
-                    minLines = 6,
-                    maxLines = 10
-                )
-
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Button(onClick = onExtract, enabled = !state.loading) { Text(text = "Linkleri Ayıkla") }
-                }
-
-                if (state.extractedUrls.isNotEmpty()) {
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(text = "Bulunan Linkler", style = MaterialTheme.typography.titleMedium)
-                            state.extractedUrls.forEach { item ->
-                                val statusColor = when (item.success) {
-                                    true -> MaterialTheme.colorScheme.primary
-                                    false -> MaterialTheme.colorScheme.error
-                                    null -> MaterialTheme.colorScheme.onSurface
+                            val icon = when (item.success) {
+                                true -> Icons.Filled.CheckCircle
+                                false -> Icons.Filled.Warning
+                                null -> Icons.Filled.PlayArrow
+                            }
+                            val suffix = buildString {
+                                item.status?.let { append(" - "); append(it) }
+                                if (item.testedStreams > 0) {
+                                    append(" (${item.testedStreams} test)")
                                 }
-                                val suffix = buildString {
-                                    item.status?.let { append(" - "); append(it) }
-                                    if (item.testedStreams > 0) {
-                                        append(" (${item.testedStreams} test)")
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(imageVector = icon, contentDescription = null, tint = statusColor)
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(text = "${index + 1}. ${item.url}", color = statusColor)
+                                    if (suffix.isNotBlank()) {
+                                        Text(
+                                            text = suffix.trim(),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = statusColor
+                                        )
                                     }
                                 }
-                                Text(text = "- ${item.url}", color = statusColor)
-                                if (suffix.isNotBlank()) {
-                                    Text(text = suffix.trim(), style = MaterialTheme.typography.bodySmall, color = statusColor)
-                                }
                             }
+                            HorizontalDivider()
                         }
                     }
                 }
             }
 
-            1 -> {
-                Text(text = "Ülke Seç", style = MaterialTheme.typography.titleMedium)
-                defaultCountries.forEach { code ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(
-                            checked = code in state.selectedCountries,
-                            onCheckedChange = { checked -> onToggleCountry(code, checked) }
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = code)
+            when (stepIndex) {
+                0 -> {
+                    OutlinedTextField(
+                        value = state.inputText,
+                        onValueChange = onInputChange,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp),
+                        label = { Text(text = "Metin / Linkler") },
+                        minLines = 6,
+                        maxLines = 10
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Button(onClick = onExtract, enabled = !state.loading) {
+                            Icon(imageVector = Icons.Filled.Link, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(text = "Linkleri Ayıkla")
+                        }
+                    }
+
+                    if (state.extractedUrls.isNotEmpty()) {
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Text(text = "Bulunan Linkler", style = MaterialTheme.typography.titleMedium)
+                                state.extractedUrls.forEachIndexed { index, item ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Icon(imageVector = Icons.Filled.Link, contentDescription = null)
+                                        Text(text = "${index + 1}. ${item.url}")
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
-            }
 
-            2 -> {
-                Text(text = "Çıktı Formatı", style = MaterialTheme.typography.titleMedium)
+                1 -> {
+                    Text(text = "Ülke Seç", style = MaterialTheme.typography.titleMedium)
+                    defaultCountries.forEach { code ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = code in state.selectedCountries,
+                                onCheckedChange = { checked -> onToggleCountry(code, checked) }
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(text = code)
+                        }
+                    }
+                }
+
+                2 -> {
+                    Text(text = "Çıktı Formatı", style = MaterialTheme.typography.titleMedium)
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = state.autoDetectFormat, onCheckedChange = { onAutoDetectFormatChange(it) })
@@ -245,8 +312,8 @@ fun AutoScreen(
                 }
             }
 
-            else -> {
-                Text(text = "Tek / Çok Dosya", style = MaterialTheme.typography.titleMedium)
+                else -> {
+                    Text(text = "Tek / Çok Dosya", style = MaterialTheme.typography.titleMedium)
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = state.mergeIntoSingle, onCheckedChange = { onMergeChange(it) })
@@ -272,15 +339,17 @@ fun AutoScreen(
                     }
                 }
 
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(text = "Kayıt Klasörü", style = MaterialTheme.typography.titleMedium)
-                        Text(text = state.outputFolderUriString ?: "Download/IPTV (varsayılan)", style = MaterialTheme.typography.bodySmall)
-                        Button(onClick = onPickFolder, enabled = !state.loading) {
-                            Text(text = "Klasör Seç")
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(text = "Kayıt Klasörü", style = MaterialTheme.typography.titleMedium)
+                            Text(text = state.outputFolderUriString ?: "Download/IPTV (varsayılan)", style = MaterialTheme.typography.bodySmall)
+                            Button(onClick = onPickFolder, enabled = !state.loading) {
+                                Icon(imageVector = Icons.Filled.FolderOpen, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(text = "Klasör Seç")
+                            }
                         }
                     }
-                }
 
                 state.mergeRenameWarning?.let { warning ->
                     Card(modifier = Modifier.fillMaxWidth()) {
@@ -295,70 +364,81 @@ fun AutoScreen(
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            val canGoBack = stepIndex > 0 && !state.loading
-            Button(onClick = onPrev, enabled = canGoBack) {
-                Text(text = "Geri")
-            }
-
-            Box(modifier = Modifier.weight(1f))
-
-            val canGoNext = !state.loading && when (stepIndex) {
-                0 -> state.extractedUrls.isNotEmpty()
-                1 -> state.selectedCountries.isNotEmpty()
-                else -> true
-            }
-
-            if (stepIndex < 3) {
-                Button(onClick = onNext, enabled = canGoNext) {
-                    Text(text = "İleri")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                val canGoBack = stepIndex > 0 && !state.loading
+                Button(onClick = onPrev, enabled = canGoBack) {
+                    Icon(imageVector = Icons.Filled.ArrowBack, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(text = "Geri")
                 }
-            } else {
-                Button(onClick = onRun, enabled = canGoNext && state.extractedUrls.isNotEmpty()) {
-                    Text(text = "Başlat")
-                }
-            }
-        }
 
-        if (state.savedFiles.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(text = "Kaydedilen Dosyalar", style = MaterialTheme.typography.titleMedium)
-            state.savedFiles.forEach { f ->
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(text = f.displayName, modifier = Modifier.weight(1f))
-                    Button(
-                        onClick = {
-                            val uri = Uri.parse(f.uriString)
-                            val intent = Intent(Intent.ACTION_SEND).apply {
-                                type = "application/octet-stream"
-                                putExtra(Intent.EXTRA_STREAM, uri)
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            }
-                            context.startActivity(Intent.createChooser(intent, null))
-                        }
-                    ) {
-                        Text(text = "Paylaş")
+                Box(modifier = Modifier.weight(1f))
+
+                val canGoNext = !state.loading && when (stepIndex) {
+                    0 -> state.extractedUrls.isNotEmpty()
+                    1 -> state.selectedCountries.isNotEmpty()
+                    else -> true
+                }
+
+                if (stepIndex < 3) {
+                    Button(onClick = onNext, enabled = canGoNext) {
+                        Text(text = "İleri")
+                    }
+                } else {
+                    Button(onClick = onRun, enabled = canGoNext && state.extractedUrls.isNotEmpty()) {
+                        Icon(imageVector = Icons.Filled.PlayArrow, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(text = "Başlat")
                     }
                 }
             }
-        }
 
-        state.reportText?.let { report ->
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(text = "Rapor", style = MaterialTheme.typography.titleMedium)
-                    Text(text = report, style = MaterialTheme.typography.bodySmall)
+            if (state.savedFiles.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(text = "Kaydedilen Dosyalar", style = MaterialTheme.typography.titleMedium)
+                        state.savedFiles.forEach { f ->
+                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(text = f.displayName, modifier = Modifier.weight(1f))
+                                Button(
+                                    onClick = {
+                                        val uri = Uri.parse(f.uriString)
+                                        val intent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "application/octet-stream"
+                                            putExtra(Intent.EXTRA_STREAM, uri)
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        context.startActivity(Intent.createChooser(intent, null))
+                                    }
+                                ) {
+                                    Icon(imageVector = Icons.Filled.Share, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(text = "Paylaş")
+                                }
+                            }
+                        }
+                    }
                 }
             }
-        }
 
-        state.outputPreview?.let { preview ->
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(text = "Önizleme", style = MaterialTheme.typography.titleMedium)
-            Text(text = preview, style = MaterialTheme.typography.bodySmall)
+            state.reportText?.let { report ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(text = "Rapor", style = MaterialTheme.typography.titleMedium)
+                        Text(text = report, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+
+            state.outputPreview?.let { preview ->
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(text = "Önizleme", style = MaterialTheme.typography.titleMedium)
+                Text(text = preview, style = MaterialTheme.typography.bodySmall)
+            }
         }
     }
 }
