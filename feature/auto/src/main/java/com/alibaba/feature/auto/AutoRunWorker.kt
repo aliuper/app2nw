@@ -34,174 +34,180 @@ class AutoRunWorker @AssistedInject constructor(
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
-        val urls = inputData.getStringArray(KEY_URLS)?.toList().orEmpty()
-        val countries = inputData.getStringArray(KEY_COUNTRIES)?.toSet().orEmpty()
-        val mergeIntoSingle = inputData.getBoolean(KEY_MERGE_INTO_SINGLE, true)
-        val folderUriString = inputData.getString(KEY_FOLDER_URI)
-        val autoDetectFormat = inputData.getBoolean(KEY_AUTO_DETECT_FORMAT, true)
-        val outputFormatOrdinal = inputData.getInt(KEY_OUTPUT_FORMAT, OutputFormat.M3U8.ordinal)
-        val chosenOutputFormat = OutputFormat.values().getOrElse(outputFormatOrdinal) { OutputFormat.M3U8 }
+        return try {
+            val urls = inputData.getStringArray(KEY_URLS)?.toList().orEmpty()
+            val countries = inputData.getStringArray(KEY_COUNTRIES)?.toSet().orEmpty()
+            val mergeIntoSingle = inputData.getBoolean(KEY_MERGE_INTO_SINGLE, true)
+            val folderUriString = inputData.getString(KEY_FOLDER_URI)
+            val autoDetectFormat = inputData.getBoolean(KEY_AUTO_DETECT_FORMAT, true)
+            val outputFormatOrdinal = inputData.getInt(KEY_OUTPUT_FORMAT, OutputFormat.M3U8.ordinal)
+            val chosenOutputFormat = OutputFormat.values().getOrElse(outputFormatOrdinal) { OutputFormat.M3U8 }
 
-        if (urls.isEmpty() || countries.isEmpty()) {
-            return Result.failure(
-                Data.Builder().putString(KEY_ERROR, "Link veya ülke listesi boş").build()
-            )
-        }
+            if (urls.isEmpty() || countries.isEmpty()) {
+                return Result.failure(
+                    Data.Builder().putString(KEY_ERROR, "Link veya ülke listesi boş").build()
+                )
+            }
 
-        val firstFgOk = runCatching { setForeground(createForegroundInfo(0, "Başlıyor")) }.isSuccess
-        if (!firstFgOk) {
-            return Result.failure(
-                Data.Builder().putString(KEY_ERROR, "Arka plan bildirimi/foreground izni yok (Android 14+ için FOREGROUND_SERVICE_DATA_SYNC gerekebilir)").build()
-            )
-        }
-
-        val mergedChannels = ArrayList<Channel>(16_384)
-        var mergedEndDate: String? = null
-
-        val usedGroupNames = linkedMapOf<String, Int>()
-        val renameSamples = ArrayList<String>(16)
-
-        val working = ArrayList<String>(urls.size)
-        val failing = ArrayList<String>(urls.size)
-        val savedNames = ArrayList<String>(urls.size + 1)
-        val savedUris = ArrayList<String>(urls.size + 1)
-
-        for ((index, url) in urls.withIndex()) {
-            val header = "${index + 1}/${urls.size}"
-            setProgress(header, index, "İndiriliyor", 0, 0, null)
-            val fgOk = runCatching {
-                setForeground(createForegroundInfo(((index * 100) / urls.size).coerceIn(0, 99), "$header - İndiriliyor"))
-            }.isSuccess
-            if (!fgOk) {
+            val firstFgOk = runCatching { setForeground(createForegroundInfo(0, "Başlıyor")) }.isSuccess
+            if (!firstFgOk) {
                 return Result.failure(
                     Data.Builder().putString(KEY_ERROR, "Foreground başlatılamadı (bildirim/izin sorunu)").build()
                 )
             }
 
-            try {
-                val playlist = playlistRepository.fetchPlaylist(url)
+            val mergedChannels = ArrayList<Channel>(16_384)
+            var mergedEndDate: String? = null
 
-                setProgress(header, index, "Stream testi", 0, 0, null)
-                val (ok, testedCount, totalCount) = runStreamTestDetailed(playlist) { tested, total ->
-                    setProgress(header, index, "Test ${tested}/${total}", tested, total, null)
-                }
+            val usedGroupNames = linkedMapOf<String, Int>()
+            val renameSamples = ArrayList<String>(16)
 
-                if (!ok) {
-                    failing += url
-                    setProgress(header, index, "Stream testi başarısız", testedCount, totalCount, false)
-                    continue
-                }
+            val working = ArrayList<String>(urls.size)
+            val failing = ArrayList<String>(urls.size)
+            val savedNames = ArrayList<String>(urls.size + 1)
+            val savedUris = ArrayList<String>(urls.size + 1)
 
-                val filtered = filterPlaylistByCountries(playlist, countries)
-                if (filtered.channels.isEmpty()) {
-                    failing += url
-                    setProgress(header, index, "Link aktif ama seçilen ülke(ler) için kanal yok", testedCount, totalCount, false)
-                    continue
-                }
-
-                working += url
-
-                if (mergeIntoSingle) {
-                    val renamed = mergeWithBackupNames(
-                        channels = filtered.channels,
-                        usedGroupNames = usedGroupNames,
-                        renameSamples = renameSamples
+            for ((index, url) in urls.withIndex()) {
+                val header = "${index + 1}/${urls.size}"
+                setProgress(header, index, "İndiriliyor", 0, 0, null)
+                val fgOk = runCatching {
+                    setForeground(createForegroundInfo(((index * 100) / urls.size).coerceIn(0, 99), "$header - İndiriliyor"))
+                }.isSuccess
+                if (!fgOk) {
+                    return Result.failure(
+                        Data.Builder().putString(KEY_ERROR, "Foreground başlatılamadı (bildirim/izin sorunu)").build()
                     )
-                    mergedChannels += renamed
-                    mergedEndDate = mergedEndDate ?: filtered.endDate
-                    setProgress(header, index, "Birleştirildi", testedCount, totalCount, true)
-                } else {
-                    setProgress(header, index, "Kaydediliyor", testedCount, totalCount, true)
-                    val format = if (autoDetectFormat) OutputFormatDetector.detect(filtered) else chosenOutputFormat
-                    val content = withContext(Dispatchers.Default) {
-                        val groups = filtered.channels.map { it.group ?: "Ungrouped" }.toSet()
-                        PlaylistTextFormatter.format(filtered, groups, format)
-                    }
-
-                    val saved = if (folderUriString.isNullOrBlank()) {
-                        outputSaver.saveToDownloads(
-                            sourceUrl = url,
-                            format = format,
-                            content = content,
-                            maybeEndDate = filtered.endDate
-                        )
-                    } else {
-                        outputSaver.saveToFolder(
-                            folderUriString = folderUriString,
-                            sourceUrl = url,
-                            format = format,
-                            content = content,
-                            maybeEndDate = filtered.endDate
-                        )
-                    }
-
-                    savedNames += saved.displayName
-                    savedUris += saved.uriString
-                    setProgress(header, index, "Kaydedildi", testedCount, totalCount, true)
                 }
-            } catch (t: Throwable) {
-                failing += url
-                setProgress(header, index, t.message ?: "Hata", 0, 0, false)
+
+                try {
+                    val playlist = playlistRepository.fetchPlaylist(url)
+
+                    setProgress(header, index, "Stream testi", 0, 0, null)
+                    val (ok, testedCount, totalCount) = runStreamTestDetailed(playlist) { tested, total ->
+                        setProgress(header, index, "Test ${tested}/${total}", tested, total, null)
+                    }
+
+                    if (!ok) {
+                        failing += url
+                        setProgress(header, index, "Stream testi başarısız", testedCount, totalCount, false)
+                        continue
+                    }
+
+                    val filtered = filterPlaylistByCountries(playlist, countries)
+                    if (filtered.channels.isEmpty()) {
+                        failing += url
+                        setProgress(header, index, "Link aktif ama seçilen ülke(ler) için kanal yok", testedCount, totalCount, false)
+                        continue
+                    }
+
+                    working += url
+
+                    if (mergeIntoSingle) {
+                        val renamed = mergeWithBackupNames(
+                            channels = filtered.channels,
+                            usedGroupNames = usedGroupNames,
+                            renameSamples = renameSamples
+                        )
+                        mergedChannels += renamed
+                        mergedEndDate = mergedEndDate ?: filtered.endDate
+                        setProgress(header, index, "Birleştirildi", testedCount, totalCount, true)
+                    } else {
+                        setProgress(header, index, "Kaydediliyor", testedCount, totalCount, true)
+                        val format = if (autoDetectFormat) OutputFormatDetector.detect(filtered) else chosenOutputFormat
+                        val content = withContext(Dispatchers.Default) {
+                            val groups = filtered.channels.map { it.group ?: "Ungrouped" }.toSet()
+                            PlaylistTextFormatter.format(filtered, groups, format)
+                        }
+
+                        val saved = if (folderUriString.isNullOrBlank()) {
+                            outputSaver.saveToDownloads(
+                                sourceUrl = url,
+                                format = format,
+                                content = content,
+                                maybeEndDate = filtered.endDate
+                            )
+                        } else {
+                            outputSaver.saveToFolder(
+                                folderUriString = folderUriString,
+                                sourceUrl = url,
+                                format = format,
+                                content = content,
+                                maybeEndDate = filtered.endDate
+                            )
+                        }
+
+                        savedNames += saved.displayName
+                        savedUris += saved.uriString
+                        setProgress(header, index, "Kaydedildi", testedCount, totalCount, true)
+                    }
+                } catch (t: Throwable) {
+                    failing += url
+                    setProgress(header, index, t.message ?: "Hata", 0, 0, false)
+                }
             }
+
+            if (mergeIntoSingle) {
+                val fgOk = runCatching { setForeground(createForegroundInfo(95, "Çıktı hazırlanıyor")) }.isSuccess
+                if (!fgOk) {
+                    return Result.failure(
+                        Data.Builder().putString(KEY_ERROR, "Foreground başlatılamadı (bildirim/izin sorunu)").build()
+                    )
+                }
+                val merged = Playlist(channels = mergedChannels, endDate = mergedEndDate)
+                val format = if (autoDetectFormat) OutputFormatDetector.detect(merged) else chosenOutputFormat
+                val content = withContext(Dispatchers.Default) {
+                    val groups = merged.channels.map { it.group ?: "Ungrouped" }.toSet()
+                    PlaylistTextFormatter.format(merged, groups, format)
+                }
+
+                val saved = if (folderUriString.isNullOrBlank()) {
+                    outputSaver.saveToDownloads(
+                        sourceUrl = "alibaba",
+                        format = format,
+                        content = content,
+                        maybeEndDate = merged.endDate
+                    )
+                } else {
+                    outputSaver.saveToFolder(
+                        folderUriString = folderUriString,
+                        sourceUrl = "alibaba",
+                        format = format,
+                        content = content,
+                        maybeEndDate = merged.endDate
+                    )
+                }
+
+                savedNames += saved.displayName
+                savedUris += saved.uriString
+            }
+
+            val report = buildString {
+                append("Bitti. Çalışan: ")
+                append(working.size)
+                append(" | Çalışmayan: ")
+                append(failing.size)
+                if (!folderUriString.isNullOrBlank()) {
+                    append(" | Klasör: ")
+                    append(folderUriString)
+                } else {
+                    append(" | Klasör: Download/IPTV")
+                }
+            }
+
+            val output = Data.Builder()
+                .putString(KEY_REPORT, report)
+                .putStringArray(KEY_WORKING_URLS, working.toTypedArray())
+                .putStringArray(KEY_FAILING_URLS, failing.toTypedArray())
+                .putStringArray(KEY_SAVED_NAMES, savedNames.toTypedArray())
+                .putStringArray(KEY_SAVED_URIS, savedUris.toTypedArray())
+                .build()
+
+            Result.success(output)
+        } catch (t: Throwable) {
+            Result.failure(
+                Data.Builder().putString(KEY_ERROR, t.message ?: t.javaClass.simpleName).build()
+            )
         }
-
-        if (mergeIntoSingle) {
-            val fgOk = runCatching { setForeground(createForegroundInfo(95, "Çıktı hazırlanıyor")) }.isSuccess
-            if (!fgOk) {
-                return Result.failure(
-                    Data.Builder().putString(KEY_ERROR, "Foreground başlatılamadı (bildirim/izin sorunu)").build()
-                )
-            }
-            val merged = Playlist(channels = mergedChannels, endDate = mergedEndDate)
-            val format = if (autoDetectFormat) OutputFormatDetector.detect(merged) else chosenOutputFormat
-            val content = withContext(Dispatchers.Default) {
-                val groups = merged.channels.map { it.group ?: "Ungrouped" }.toSet()
-                PlaylistTextFormatter.format(merged, groups, format)
-            }
-
-            val saved = if (folderUriString.isNullOrBlank()) {
-                outputSaver.saveToDownloads(
-                    sourceUrl = "alibaba",
-                    format = format,
-                    content = content,
-                    maybeEndDate = merged.endDate
-                )
-            } else {
-                outputSaver.saveToFolder(
-                    folderUriString = folderUriString,
-                    sourceUrl = "alibaba",
-                    format = format,
-                    content = content,
-                    maybeEndDate = merged.endDate
-                )
-            }
-
-            savedNames += saved.displayName
-            savedUris += saved.uriString
-        }
-
-        val report = buildString {
-            append("Bitti. Çalışan: ")
-            append(working.size)
-            append(" | Çalışmayan: ")
-            append(failing.size)
-            if (!folderUriString.isNullOrBlank()) {
-                append(" | Klasör: ")
-                append(folderUriString)
-            } else {
-                append(" | Klasör: Download/IPTV")
-            }
-        }
-
-        val output = Data.Builder()
-            .putString(KEY_REPORT, report)
-            .putStringArray(KEY_WORKING_URLS, working.toTypedArray())
-            .putStringArray(KEY_FAILING_URLS, failing.toTypedArray())
-            .putStringArray(KEY_SAVED_NAMES, savedNames.toTypedArray())
-            .putStringArray(KEY_SAVED_URIS, savedUris.toTypedArray())
-            .build()
-
-        return Result.success(output)
     }
 
     private fun setProgress(

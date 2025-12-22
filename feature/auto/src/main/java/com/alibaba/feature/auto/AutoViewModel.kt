@@ -221,12 +221,29 @@ class AutoViewModel @Inject constructor(
                     WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> {
                         val error = info.outputData.getString(AutoRunWorker.KEY_ERROR)
                         _state.update { s ->
+                            val lastStep = s.progressStep
+                            val msg = when (info.state) {
+                                WorkInfo.State.CANCELLED -> {
+                                    buildString {
+                                        append("İş iptal edildi")
+                                        if (!lastStep.isNullOrBlank()) {
+                                            append(" (Son adım: ")
+                                            append(lastStep)
+                                            append(")")
+                                        }
+                                        append(". Tekrar çalıştırdıysan önceki iş iptal edilmiş olabilir. Arka planda kapanıyorsa pil optimizasyonunu kapat.")
+                                    }
+                                }
+
+                                else -> error ?: "İş başarısız"
+                            }
+
                             s.copy(
                                 loading = false,
                                 progressPercent = 0,
                                 progressStep = null,
                                 etaSeconds = null,
-                                errorMessage = error ?: "İş iptal edildi veya başarısız",
+                                errorMessage = msg,
                                 lastRunSaved = false
                             )
                         }
