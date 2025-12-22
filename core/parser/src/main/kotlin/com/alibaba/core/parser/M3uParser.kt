@@ -21,7 +21,8 @@ class M3uParser {
                 val meta = pendingInf.orEmpty()
 
                 fun attr(key: String): String? {
-                    val regex = Regex("""${'$'}key=\"([^\"]*)\"""", RegexOption.IGNORE_CASE)
+                    val safeKey = Regex.escape(key)
+                    val regex = Regex("""$safeKey=\"([^\"]*)\"""", RegexOption.IGNORE_CASE)
                     return regex.find(meta)?.groupValues?.getOrNull(1)?.takeIf { it.isNotBlank() }
                 }
 
