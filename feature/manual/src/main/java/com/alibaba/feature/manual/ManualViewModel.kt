@@ -88,7 +88,7 @@ class ManualViewModel @Inject constructor(
                         .eachCount()
                         .toList()
                         .sortedBy { it.first.lowercase() }
-                        .map { (name, count) -> GroupItem(name = name, channelCount = count, selected = true) }
+                        .map { (name, count) -> GroupItem(name = name, channelCount = count, selected = false) }
                 }
 
                 setProgress(percent = 70, step = "Stream testi")

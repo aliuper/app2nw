@@ -165,9 +165,12 @@ fun AutoScreen(
                 OutlinedTextField(
                     value = state.inputText,
                     onValueChange = onInputChange,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp),
                     label = { Text(text = "Metin / Linkler") },
-                    minLines = 6
+                    minLines = 6,
+                    maxLines = 10
                 )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {

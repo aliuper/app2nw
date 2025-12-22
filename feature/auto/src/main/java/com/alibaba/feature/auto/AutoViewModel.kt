@@ -130,15 +130,13 @@ class AutoViewModel @Inject constructor(
                     _state.update { it.copy(extractedUrls = items.toList()) }
 
                     try {
-                        val playlist = playlistRepository.fetchPlaylist(url)
-                        val filtered = filterPlaylistByCountries(playlist, countries)
-
                         items[index] = items[index].copy(status = "İndirildi", success = null)
                         _state.update { it.copy(extractedUrls = items.toList()) }
 
                         setProgress(percent = ((index * 100) / urls.size).coerceIn(0, 99), step = "${header} - Stream testi")
+                        val playlist = playlistRepository.fetchPlaylist(url)
                         val test = runStreamTestDetailed(
-                            playlist = filtered,
+                            playlist = playlist,
                             onTestUpdate = { tested, total ->
                                 items[index] = items[index].copy(status = "Test ${tested}/${total}", success = null, testedStreams = tested)
                                 _state.update { it.copy(extractedUrls = items.toList()) }
@@ -149,6 +147,19 @@ class AutoViewModel @Inject constructor(
                         if (!ok) {
                             items[index] = items[index].copy(status = "Stream testi başarısız", success = false, testedStreams = testedCount)
                             failing += url
+                            _state.update { it.copy(extractedUrls = items.toList()) }
+                            continue
+                        }
+
+                        val filtered = filterPlaylistByCountries(playlist, countries)
+                        if (filtered.channels.isEmpty()) {
+                            items[index] = items[index].copy(
+                                status = "Link aktif ama seçilen ülke(ler) için kanal yok",
+                                success = false,
+                                testedStreams = testedCount
+                            )
+                            failing += url
+                            _state.update { it.copy(extractedUrls = items.toList()) }
                             continue
                         }
 
@@ -311,10 +322,11 @@ class AutoViewModel @Inject constructor(
 
         if (candidates.isEmpty()) return@withContext false to 0
 
-        val sample = if (candidates.size <= 3) {
-            candidates.take(3)
+        val max = 10
+        val sample = if (candidates.size <= max) {
+            candidates
         } else {
-            candidates.shuffled(Random(System.currentTimeMillis())).take(3)
+            candidates.shuffled(Random(System.currentTimeMillis())).take(max)
         }
 
         val total = sample.size
