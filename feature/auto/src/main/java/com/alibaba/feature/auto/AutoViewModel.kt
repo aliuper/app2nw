@@ -2,6 +2,7 @@ package com.alibaba.feature.auto
 
 import android.os.SystemClock
 import android.content.Context
+import android.os.Build
 import androidx.work.Data
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
@@ -235,7 +236,50 @@ class AutoViewModel @Inject constructor(
                                     }
                                 }
 
-                                else -> error ?: "İş başarısız"
+                                else -> {
+                                    if (!error.isNullOrBlank()) {
+                                        error
+                                    } else {
+                                        val stopReasonText = if (Build.VERSION.SDK_INT >= 31) {
+                                            when (info.stopReason) {
+                                                WorkInfo.STOP_REASON_APP_STANDBY -> "APP_STANDBY"
+                                                WorkInfo.STOP_REASON_BACKGROUND_RESTRICTION -> "BACKGROUND_RESTRICTION"
+                                                WorkInfo.STOP_REASON_CANCELLED_BY_APP -> "CANCELLED_BY_APP"
+                                                WorkInfo.STOP_REASON_CONSTRAINT_BATTERY_NOT_LOW -> "CONSTRAINT_BATTERY_NOT_LOW"
+                                                WorkInfo.STOP_REASON_CONSTRAINT_CHARGING -> "CONSTRAINT_CHARGING"
+                                                WorkInfo.STOP_REASON_CONSTRAINT_CONNECTIVITY -> "CONSTRAINT_CONNECTIVITY"
+                                                WorkInfo.STOP_REASON_CONSTRAINT_DEVICE_IDLE -> "CONSTRAINT_DEVICE_IDLE"
+                                                WorkInfo.STOP_REASON_CONSTRAINT_STORAGE_NOT_LOW -> "CONSTRAINT_STORAGE_NOT_LOW"
+                                                WorkInfo.STOP_REASON_DEVICE_STATE -> "DEVICE_STATE"
+                                                WorkInfo.STOP_REASON_PREEMPT -> "PREEMPT"
+                                                WorkInfo.STOP_REASON_QUOTA -> "QUOTA"
+                                                WorkInfo.STOP_REASON_SYSTEM_PROCESSING -> "SYSTEM_PROCESSING"
+                                                WorkInfo.STOP_REASON_TIMEOUT -> "TIMEOUT"
+                                                WorkInfo.STOP_REASON_UNKNOWN -> "UNKNOWN"
+                                                else -> "${info.stopReason}"
+                                            }
+                                        } else {
+                                            null
+                                        }
+
+                                        buildString {
+                                            append("İş başarısız")
+                                            append(" (state=")
+                                            append(info.state.name)
+                                            append(", attempt=")
+                                            append(info.runAttemptCount)
+                                            append(")")
+                                            if (!lastStep.isNullOrBlank()) {
+                                                append("\nSon adım: ")
+                                                append(lastStep)
+                                            }
+                                            if (!stopReasonText.isNullOrBlank()) {
+                                                append("\nstopReason: ")
+                                                append(stopReasonText)
+                                            }
+                                        }
+                                    }
+                                }
                             }
 
                             s.copy(
