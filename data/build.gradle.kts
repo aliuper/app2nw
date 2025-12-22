@@ -29,6 +29,8 @@ dependencies {
     implementation(project(":core:network"))
     implementation(project(":core:parser"))
 
+    implementation(libs.okhttp)
+
     implementation(libs.kotlinx.coroutines.android)
 
     implementation(libs.media3.exoplayer)
