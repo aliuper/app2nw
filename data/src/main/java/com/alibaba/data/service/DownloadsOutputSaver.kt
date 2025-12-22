@@ -93,7 +93,7 @@ class DownloadsOutputSaver @Inject constructor(
         }
 
         var version = 1
-        while (true) {
+        while (version < Int.MAX_VALUE) {
             val base = buildString {
                 append(basePrefix)
                 append(version)
@@ -117,6 +117,8 @@ class DownloadsOutputSaver @Inject constructor(
 
             version += 1
         }
+
+        throw IllegalStateException("Could not create a unique filename")
     }
 
     private fun deriveSourceName(url: String): String {
