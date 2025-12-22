@@ -15,6 +15,7 @@ data class ManualUiState(
     val progressStep: String? = null,
     val etaSeconds: Long? = null,
     val errorMessage: String? = null,
+    val analysisReport: String? = null,
     val groups: List<GroupItem> = emptyList(),
     val outputFormat: OutputFormat = OutputFormat.M3U8,
     val outputText: String? = null,

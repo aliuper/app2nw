@@ -6,7 +6,9 @@ import com.alibaba.core.parser.M3uParser
 import com.alibaba.data.repo.PlaylistRepositoryImpl
 import com.alibaba.data.service.DownloadsOutputSaver
 import com.alibaba.data.service.Media3StreamTester
+import com.alibaba.data.service.OkHttpIptvAnalyzer
 import com.alibaba.domain.repo.PlaylistRepository
+import com.alibaba.domain.service.IptvAnalyzer
 import com.alibaba.domain.service.OutputSaver
 import com.alibaba.domain.service.StreamTester
 import dagger.Binds
@@ -25,6 +27,9 @@ abstract class DataBindModule {
 
     @Binds
     abstract fun bindStreamTester(impl: Media3StreamTester): StreamTester
+
+    @Binds
+    abstract fun bindIptvAnalyzer(impl: OkHttpIptvAnalyzer): IptvAnalyzer
 
     @Binds
     abstract fun bindOutputSaver(impl: DownloadsOutputSaver): OutputSaver
