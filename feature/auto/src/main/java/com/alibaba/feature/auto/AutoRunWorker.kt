@@ -1,6 +1,8 @@
 package com.alibaba.feature.auto
 
 import android.content.Context
+import android.content.pm.ServiceInfo
+import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
@@ -40,9 +42,18 @@ class AutoRunWorker @AssistedInject constructor(
         val outputFormatOrdinal = inputData.getInt(KEY_OUTPUT_FORMAT, OutputFormat.M3U8.ordinal)
         val chosenOutputFormat = OutputFormat.values().getOrElse(outputFormatOrdinal) { OutputFormat.M3U8 }
 
-        if (urls.isEmpty() || countries.isEmpty()) return Result.failure()
+        if (urls.isEmpty() || countries.isEmpty()) {
+            return Result.failure(
+                Data.Builder().putString(KEY_ERROR, "Link veya ülke listesi boş").build()
+            )
+        }
 
-        setForeground(createForegroundInfo(0, "Başlıyor"))
+        val firstFgOk = runCatching { setForeground(createForegroundInfo(0, "Başlıyor")) }.isSuccess
+        if (!firstFgOk) {
+            return Result.failure(
+                Data.Builder().putString(KEY_ERROR, "Arka plan bildirimi/foreground izni yok (Android 14+ için FOREGROUND_SERVICE_DATA_SYNC gerekebilir)").build()
+            )
+        }
 
         val mergedChannels = ArrayList<Channel>(16_384)
         var mergedEndDate: String? = null
@@ -58,7 +69,14 @@ class AutoRunWorker @AssistedInject constructor(
         for ((index, url) in urls.withIndex()) {
             val header = "${index + 1}/${urls.size}"
             setProgress(header, index, "İndiriliyor", 0, 0, null)
-            setForeground(createForegroundInfo(((index * 100) / urls.size).coerceIn(0, 99), "$header - İndiriliyor"))
+            val fgOk = runCatching {
+                setForeground(createForegroundInfo(((index * 100) / urls.size).coerceIn(0, 99), "$header - İndiriliyor"))
+            }.isSuccess
+            if (!fgOk) {
+                return Result.failure(
+                    Data.Builder().putString(KEY_ERROR, "Foreground başlatılamadı (bildirim/izin sorunu)").build()
+                )
+            }
 
             try {
                 val playlist = playlistRepository.fetchPlaylist(url)
@@ -128,7 +146,12 @@ class AutoRunWorker @AssistedInject constructor(
         }
 
         if (mergeIntoSingle) {
-            setForeground(createForegroundInfo(95, "Çıktı hazırlanıyor"))
+            val fgOk = runCatching { setForeground(createForegroundInfo(95, "Çıktı hazırlanıyor")) }.isSuccess
+            if (!fgOk) {
+                return Result.failure(
+                    Data.Builder().putString(KEY_ERROR, "Foreground başlatılamadı (bildirim/izin sorunu)").build()
+                )
+            }
             val merged = Playlist(channels = mergedChannels, endDate = mergedEndDate)
             val format = if (autoDetectFormat) OutputFormatDetector.detect(merged) else chosenOutputFormat
             val content = withContext(Dispatchers.Default) {
@@ -214,7 +237,11 @@ class AutoRunWorker @AssistedInject constructor(
             .setProgress(100, percent.coerceIn(0, 100), false)
             .build()
 
-        return ForegroundInfo(1001, notification)
+        return if (Build.VERSION.SDK_INT >= 29) {
+            ForegroundInfo(1001, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            ForegroundInfo(1001, notification)
+        }
     }
 
     private fun filterPlaylistByCountries(playlist: Playlist, countries: Set<String>): Playlist {
@@ -294,6 +321,8 @@ class AutoRunWorker @AssistedInject constructor(
         const val KEY_FOLDER_URI = "folderUri"
         const val KEY_AUTO_DETECT_FORMAT = "autoDetectFormat"
         const val KEY_OUTPUT_FORMAT = "outputFormat"
+
+        const val KEY_ERROR = "error"
 
         const val KEY_REPORT = "report"
         const val KEY_WORKING_URLS = "workingUrls"

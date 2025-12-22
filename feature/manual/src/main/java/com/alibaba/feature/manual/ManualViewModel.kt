@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.alibaba.core.common.isAdultGroup
 import com.alibaba.core.common.PlaylistTextFormatter
+import com.alibaba.core.common.OutputFormatDetector
 import com.alibaba.domain.model.OutputFormat
 import com.alibaba.domain.model.Playlist
 import com.alibaba.domain.repo.PlaylistRepository
@@ -39,6 +40,10 @@ class ManualViewModel @Inject constructor(
 
     fun onOutputFormatChange(format: OutputFormat) {
         _state.update { it.copy(outputFormat = format) }
+    }
+
+    fun onAutoDetectFormatChange(enabled: Boolean) {
+        _state.update { it.copy(autoDetectFormat = enabled) }
     }
 
     fun onToggleGroup(groupName: String, selected: Boolean) {
@@ -161,14 +166,38 @@ class ManualViewModel @Inject constructor(
                     .map { it.name }
                     .toSet()
 
-                val format = state.value.outputFormat
+                val (text, detectedFormat) = withContext(Dispatchers.Default) {
+                    val safeGroups = selectedGroups
+                        .asSequence()
+                        .filterNot { isAdultGroup(it) }
+                        .toSet()
 
-                val text = withContext(Dispatchers.Default) {
-                    val safeGroups = selectedGroups.filterNot { isAdultGroup(it) }.toSet()
-                    PlaylistTextFormatter.format(playlist, safeGroups, format)
+                    val filteredChannels = playlist.channels.filter { c ->
+                        val g = c.group ?: "Ungrouped"
+                        g in safeGroups
+                    }
+                    val filteredPlaylist = Playlist(channels = filteredChannels, endDate = playlist.endDate)
+
+                    val format = if (state.value.autoDetectFormat) {
+                        OutputFormatDetector.detect(filteredPlaylist)
+                    } else {
+                        state.value.outputFormat
+                    }
+
+                    val content = PlaylistTextFormatter.format(filteredPlaylist, safeGroups, format)
+                    content to format
                 }
 
-                _state.update { it.copy(loading = false, progressPercent = 100, progressStep = null, etaSeconds = null, outputText = text) }
+                _state.update {
+                    it.copy(
+                        loading = false,
+                        progressPercent = 100,
+                        progressStep = null,
+                        etaSeconds = null,
+                        outputText = text,
+                        outputFormat = detectedFormat
+                    )
+                }
             } catch (t: Throwable) {
                 _state.update { it.copy(loading = false, progressPercent = 0, progressStep = null, etaSeconds = null, errorMessage = t.message ?: "Hata oluştu") }
             }

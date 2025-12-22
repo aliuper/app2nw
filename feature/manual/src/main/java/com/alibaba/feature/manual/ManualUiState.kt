@@ -17,6 +17,7 @@ data class ManualUiState(
     val errorMessage: String? = null,
     val analysisReport: String? = null,
     val groups: List<GroupItem> = emptyList(),
+    val autoDetectFormat: Boolean = true,
     val outputFormat: OutputFormat = OutputFormat.M3U8,
     val outputText: String? = null,
     val streamTestPassed: Boolean? = null,

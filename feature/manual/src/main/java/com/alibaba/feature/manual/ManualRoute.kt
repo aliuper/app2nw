@@ -45,6 +45,7 @@ fun ManualRoute(
         onUrlChange = viewModel::onUrlChange,
         onAnalyze = viewModel::analyze,
         onToggleGroup = viewModel::onToggleGroup,
+        onAutoDetectFormatChange = viewModel::onAutoDetectFormatChange,
         onOutputFormatChange = viewModel::onOutputFormatChange,
         onGenerate = viewModel::generateOutput,
         onSave = viewModel::saveOutput,
@@ -58,6 +59,7 @@ fun ManualScreen(
     onUrlChange: (String) -> Unit,
     onAnalyze: () -> Unit,
     onToggleGroup: (String, Boolean) -> Unit,
+    onAutoDetectFormatChange: (Boolean) -> Unit,
     onOutputFormatChange: (OutputFormat) -> Unit,
     onGenerate: () -> Unit,
     onSave: () -> Unit,
@@ -139,6 +141,18 @@ fun ManualScreen(
             Spacer(modifier = Modifier.height(8.dp))
             Text(text = "Format", style = MaterialTheme.typography.titleMedium)
 
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Checkbox(
+                    checked = state.autoDetectFormat,
+                    onCheckedChange = { onAutoDetectFormatChange(it) }
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = "Otomatik belirle")
+            }
+
             OutputFormat.values().forEach { format ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -146,7 +160,9 @@ fun ManualScreen(
                 ) {
                     RadioButton(
                         selected = state.outputFormat == format,
-                        onClick = { onOutputFormatChange(format) }
+                        onClick = {
+                            if (!state.autoDetectFormat) onOutputFormatChange(format)
+                        }
                     )
                     Text(text = when (format) {
                         OutputFormat.M3U -> ".m3u"

@@ -219,13 +219,14 @@ class AutoViewModel @Inject constructor(
                     }
 
                     WorkInfo.State.FAILED, WorkInfo.State.CANCELLED -> {
+                        val error = info.outputData.getString(AutoRunWorker.KEY_ERROR)
                         _state.update { s ->
                             s.copy(
                                 loading = false,
                                 progressPercent = 0,
                                 progressStep = null,
                                 etaSeconds = null,
-                                errorMessage = "İş iptal edildi veya başarısız",
+                                errorMessage = error ?: "İş iptal edildi veya başarısız",
                                 lastRunSaved = false
                             )
                         }
