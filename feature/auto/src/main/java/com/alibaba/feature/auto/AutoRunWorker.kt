@@ -283,7 +283,7 @@ class AutoRunWorker @AssistedInject constructor(
         for (url in sample) {
             tested += 1
             onTestUpdate(tested, total)
-            if (streamTester.isPlayable(url)) return@withContext Triple(true, tested, total)
+            if (streamTester.isPlayable(url, 6_000L)) return@withContext Triple(true, tested, total)
         }
 
         Triple(false, tested, total)

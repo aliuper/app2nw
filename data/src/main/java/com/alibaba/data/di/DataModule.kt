@@ -4,10 +4,12 @@ import com.alibaba.core.network.HttpClientFactory
 import com.alibaba.core.network.PlaylistDownloader
 import com.alibaba.core.parser.M3uParser
 import com.alibaba.data.repo.PlaylistRepositoryImpl
+import com.alibaba.data.repo.SettingsRepositoryImpl
 import com.alibaba.data.service.DownloadsOutputSaver
 import com.alibaba.data.service.Media3StreamTester
 import com.alibaba.data.service.OkHttpIptvAnalyzer
 import com.alibaba.domain.repo.PlaylistRepository
+import com.alibaba.domain.repo.SettingsRepository
 import com.alibaba.domain.service.IptvAnalyzer
 import com.alibaba.domain.service.OutputSaver
 import com.alibaba.domain.service.StreamTester
@@ -24,6 +26,9 @@ import javax.inject.Singleton
 abstract class DataBindModule {
     @Binds
     abstract fun bindPlaylistRepository(impl: PlaylistRepositoryImpl): PlaylistRepository
+
+    @Binds
+    abstract fun bindSettingsRepository(impl: SettingsRepositoryImpl): SettingsRepository
 
     @Binds
     abstract fun bindStreamTester(impl: Media3StreamTester): StreamTester

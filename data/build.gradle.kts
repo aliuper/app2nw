@@ -31,6 +31,7 @@ dependencies {
 
     implementation(libs.okhttp)
     implementation(libs.androidx.documentfile)
+    implementation(libs.androidx.datastore.preferences)
 
     implementation(libs.kotlinx.coroutines.android)
 

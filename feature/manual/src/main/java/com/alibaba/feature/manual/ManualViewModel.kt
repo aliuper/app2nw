@@ -8,12 +8,14 @@ import com.alibaba.core.common.OutputFormatDetector
 import com.alibaba.domain.model.OutputFormat
 import com.alibaba.domain.model.Playlist
 import com.alibaba.domain.repo.PlaylistRepository
+import com.alibaba.domain.repo.SettingsRepository
 import com.alibaba.domain.service.OutputSaver
 import com.alibaba.domain.service.StreamTester
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -24,6 +26,7 @@ import javax.inject.Inject
 @HiltViewModel
 class ManualViewModel @Inject constructor(
     private val playlistRepository: PlaylistRepository,
+    private val settingsRepository: SettingsRepository,
     private val streamTester: StreamTester,
     private val outputSaver: OutputSaver
 ) : ViewModel() {
@@ -242,25 +245,36 @@ class ManualViewModel @Inject constructor(
     }
 
     private suspend fun runStreamTest(playlist: Playlist): Boolean = withContext(Dispatchers.IO) {
+        val settings = settingsRepository.settings.first()
+
         val candidates = playlist.channels
             .asSequence()
-            .filter { !isAdultGroup(it.group ?: "") }
+            .filter { c ->
+                if (!settings.skipAdultGroups) return@filter true
+                !isAdultGroup(c.group ?: "")
+            }
             .map { it.url }
             .distinct()
             .toList()
 
         if (candidates.isEmpty()) return@withContext false
 
-        val sample = if (candidates.size <= 3) {
-            candidates
-        } else {
-            candidates.shuffled(Random(System.currentTimeMillis())).take(3)
-        }
+        val max = settings.streamTestSampleSize.coerceIn(1, 50)
+        val pool = if (settings.shuffleCandidates) candidates.shuffled(Random(System.currentTimeMillis())) else candidates
+        val sample = if (pool.size <= max) pool else pool.take(max)
 
+        var okCount = 0
         for ((i, url) in sample.withIndex()) {
             val percent = 70 + ((i + 1) * 10)
             setProgress(percent = percent.coerceAtMost(95), step = "Stream testi")
-            if (streamTester.isPlayable(url)) return@withContext true
+            if (streamTester.isPlayable(url, settings.streamTestTimeoutMs)) {
+                okCount += 1
+                if (okCount >= settings.minPlayableStreamsToPass) return@withContext true
+            }
+
+            if (settings.delayBetweenStreamTestsMs > 0) {
+                kotlinx.coroutines.delay(settings.delayBetweenStreamTestsMs)
+            }
         }
 
         false

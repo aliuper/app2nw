@@ -16,9 +16,9 @@ class Media3StreamTester @Inject constructor(
     @ApplicationContext private val context: Context
 ) : StreamTester {
 
-    override suspend fun isPlayable(url: String): Boolean {
+    override suspend fun isPlayable(url: String, timeoutMs: Long): Boolean {
         return withContext(Dispatchers.Main) {
-            withTimeoutOrNull(6_000) {
+            withTimeoutOrNull(timeoutMs) {
                 val player = ExoPlayer.Builder(context).build()
                 try {
                     val deferred = CompletableDeferred<Boolean>()

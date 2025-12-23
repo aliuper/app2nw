@@ -14,6 +14,7 @@ import com.alibaba.domain.model.OutputFormat
 import com.alibaba.domain.model.Playlist
 import com.alibaba.domain.model.Channel
 import com.alibaba.domain.repo.PlaylistRepository
+import com.alibaba.domain.repo.SettingsRepository
 import com.alibaba.domain.service.OutputSaver
 import com.alibaba.domain.service.StreamTester
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -24,6 +25,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -34,6 +36,7 @@ import javax.inject.Inject
 class AutoViewModel @Inject constructor(
     @ApplicationContext private val appContext: Context,
     private val playlistRepository: PlaylistRepository,
+    private val settingsRepository: SettingsRepository,
     private val streamTester: StreamTester,
     private val outputSaver: OutputSaver
 ) : ViewModel() {
@@ -341,27 +344,40 @@ class AutoViewModel @Inject constructor(
         playlist: Playlist,
         onTestUpdate: (tested: Int, total: Int) -> Unit
     ): Triple<Boolean, Int, Int> = withContext(Dispatchers.IO) {
+        val settings = settingsRepository.settings.first()
+
         val candidates = playlist.channels
             .asSequence()
+            .filter { c ->
+                if (!settings.skipAdultGroups) return@filter true
+                !isAdultGroup(c.group)
+            }
             .map { it.url }
             .distinct()
             .toList()
 
         if (candidates.isEmpty()) return@withContext Triple(false, 0, 0)
 
-        val max = 10
-        val sample = if (candidates.size <= max) {
-            candidates
-        } else {
-            candidates.shuffled(Random(System.currentTimeMillis())).take(max)
-        }
+        val max = settings.streamTestSampleSize.coerceIn(1, 50)
+        val pool = if (settings.shuffleCandidates) candidates.shuffled(Random(System.currentTimeMillis())) else candidates
+        val sample = if (pool.size <= max) pool else pool.take(max)
 
         val total = sample.size
         var tested = 0
+        var okCount = 0
         for (url in sample) {
             tested += 1
             onTestUpdate(tested, total)
-            if (streamTester.isPlayable(url)) return@withContext Triple(true, tested, total)
+            if (streamTester.isPlayable(url, settings.streamTestTimeoutMs)) {
+                okCount += 1
+                if (okCount >= settings.minPlayableStreamsToPass) {
+                    return@withContext Triple(true, tested, total)
+                }
+            }
+
+            if (settings.delayBetweenStreamTestsMs > 0) {
+                delay(settings.delayBetweenStreamTestsMs)
+            }
         }
 
         Triple(false, tested, total)
