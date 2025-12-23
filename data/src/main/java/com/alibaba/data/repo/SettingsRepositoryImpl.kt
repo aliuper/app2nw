@@ -26,7 +26,8 @@ class SettingsRepositoryImpl @Inject constructor(
             minPlayableStreamsToPass = prefs[Keys.MIN_PLAYABLE_STREAMS_TO_PASS] ?: AppSettings().minPlayableStreamsToPass,
             delayBetweenStreamTestsMs = prefs[Keys.DELAY_BETWEEN_TESTS_MS] ?: AppSettings().delayBetweenStreamTestsMs,
             skipAdultGroups = prefs[Keys.SKIP_ADULT_GROUPS] ?: AppSettings().skipAdultGroups,
-            shuffleCandidates = prefs[Keys.SHUFFLE_CANDIDATES] ?: AppSettings().shuffleCandidates
+            shuffleCandidates = prefs[Keys.SHUFFLE_CANDIDATES] ?: AppSettings().shuffleCandidates,
+            enableCountryFiltering = prefs[Keys.ENABLE_COUNTRY_FILTERING] ?: AppSettings().enableCountryFiltering
         )
     }
 
@@ -58,6 +59,10 @@ class SettingsRepositoryImpl @Inject constructor(
         context.settingsDataStore.edit { it[Keys.SHUFFLE_CANDIDATES] = value }
     }
 
+    override suspend fun setEnableCountryFiltering(value: Boolean) {
+        context.settingsDataStore.edit { it[Keys.ENABLE_COUNTRY_FILTERING] = value }
+    }
+
     override suspend fun resetToDefaults() {
         context.settingsDataStore.edit { it.clear() }
     }
@@ -69,5 +74,6 @@ class SettingsRepositoryImpl @Inject constructor(
         val DELAY_BETWEEN_TESTS_MS = longPreferencesKey("delayBetweenStreamTestsMs")
         val SKIP_ADULT_GROUPS = booleanPreferencesKey("skipAdultGroups")
         val SHUFFLE_CANDIDATES = booleanPreferencesKey("shuffleCandidates")
+        val ENABLE_COUNTRY_FILTERING = booleanPreferencesKey("enableCountryFiltering")
     }
 }

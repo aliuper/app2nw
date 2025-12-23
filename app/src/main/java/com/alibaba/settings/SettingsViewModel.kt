@@ -56,6 +56,10 @@ class SettingsViewModel @Inject constructor(
         settingsRepository.setShuffleCandidates(value)
     }
 
+    fun setEnableCountryFiltering(value: Boolean) = launchSave {
+        settingsRepository.setEnableCountryFiltering(value)
+    }
+
     fun resetToDefaults() = launchSave {
         settingsRepository.resetToDefaults()
     }

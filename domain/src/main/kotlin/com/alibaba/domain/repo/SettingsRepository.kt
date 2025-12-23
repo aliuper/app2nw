@@ -12,6 +12,7 @@ interface SettingsRepository {
     suspend fun setDelayBetweenStreamTestsMs(value: Long)
     suspend fun setSkipAdultGroups(value: Boolean)
     suspend fun setShuffleCandidates(value: Boolean)
+    suspend fun setEnableCountryFiltering(value: Boolean)
 
     suspend fun resetToDefaults()
 }

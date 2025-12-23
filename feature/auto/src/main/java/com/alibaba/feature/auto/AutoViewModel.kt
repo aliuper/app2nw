@@ -45,6 +45,7 @@ class AutoViewModel @Inject constructor(
     val state: StateFlow<AutoUiState> = _state
 
     private var progressStartMs: Long? = null
+    private val completedUrlDurationsMs = ArrayList<Long>(64)
 
     fun onInputChange(value: String) {
         _state.update { it.copy(inputText = value, errorMessage = null) }
@@ -101,13 +102,16 @@ class AutoViewModel @Inject constructor(
         }
 
         val countries = state.value.selectedCountries
-        if (countries.isEmpty()) {
-            _state.update { it.copy(errorMessage = "En az 1 ülke seç") }
-            return
-        }
 
         viewModelScope.launch {
+            val settings = settingsRepository.settings.first()
+            if (settings.enableCountryFiltering && countries.isEmpty()) {
+                _state.update { it.copy(errorMessage = "En az 1 ülke seç") }
+                return@launch
+            }
+
             progressStartMs = SystemClock.elapsedRealtime()
+            completedUrlDurationsMs.clear()
             _state.update { s ->
                 s.copy(
                     loading = true,
@@ -143,6 +147,7 @@ class AutoViewModel @Inject constructor(
             val savedUris = ArrayList<String>(urls.size + 1)
 
             for ((index, url) in urls.withIndex()) {
+                val urlStartMs = SystemClock.elapsedRealtime()
                 val header = "${index + 1}/${urls.size}"
                 val basePercent = ((index * 100) / maxOf(1, urls.size)).coerceIn(0, 99)
                 setProgress(percent = basePercent, step = "$header - İndiriliyor")
@@ -182,6 +187,7 @@ class AutoViewModel @Inject constructor(
 
                     if (!ok) {
                         failing += url
+                        completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
                         _state.update { s ->
                             val items = s.extractedUrls.toMutableList()
                             if (index in items.indices) {
@@ -192,17 +198,23 @@ class AutoViewModel @Inject constructor(
                         continue
                     }
 
-                    val filtered = filterPlaylistByCountries(playlist, countries)
-                    if (filtered.channels.isEmpty()) {
-                        failing += url
-                        _state.update { s ->
-                            val items = s.extractedUrls.toMutableList()
-                            if (index in items.indices) {
-                                items[index] = items[index].copy(status = "Seçilen ülke(ler) için kanal yok", success = false, testedStreams = totalCount)
+                    val filtered = if (settings.enableCountryFiltering) {
+                        val p = filterPlaylistByCountries(playlist, countries)
+                        if (p.channels.isEmpty()) {
+                            failing += url
+                            completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
+                            _state.update { s ->
+                                val items = s.extractedUrls.toMutableList()
+                                if (index in items.indices) {
+                                    items[index] = items[index].copy(status = "Seçilen ülke(ler) için kanal yok", success = false, testedStreams = totalCount)
+                                }
+                                s.copy(extractedUrls = items)
                             }
-                            s.copy(extractedUrls = items)
+                            continue
                         }
-                        continue
+                        p
+                    } else {
+                        playlist
                     }
 
                     working += url
@@ -222,6 +234,7 @@ class AutoViewModel @Inject constructor(
                             }
                             s.copy(extractedUrls = items)
                         }
+                        completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
                     } else {
                         setProgress(percent = (basePercent + 6).coerceAtMost(99), step = "$header - Kaydediliyor")
                         val format = if (autoDetectFormat) OutputFormatDetector.detect(filtered) else chosenOutputFormat
@@ -257,9 +270,11 @@ class AutoViewModel @Inject constructor(
                             }
                             s.copy(extractedUrls = items)
                         }
+                        completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
                     }
                 } catch (t: Throwable) {
                     failing += url
+                    completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
                     _state.update { s ->
                         val items = s.extractedUrls.toMutableList()
                         if (index in items.indices) {
@@ -415,14 +430,19 @@ class AutoViewModel @Inject constructor(
     }
 
     private fun setProgress(percent: Int, step: String?) {
-        val start = progressStartMs
         val now = SystemClock.elapsedRealtime()
-        val etaSeconds = if (start != null && percent in 1..99) {
-            val elapsedMs = (now - start).coerceAtLeast(1)
-            val remainingMs = (elapsedMs * (100 - percent)) / percent
-            (remainingMs / 1000L).coerceAtMost(60 * 60)
+        val etaSeconds = if (percent in 1..99 && completedUrlDurationsMs.isNotEmpty()) {
+            val avgMs = completedUrlDurationsMs.average().toLong().coerceAtLeast(1)
+            val total = state.value.extractedUrls.size
+            val remaining = (total - completedUrlDurationsMs.size).coerceAtLeast(0)
+            ((avgMs * remaining) / 1000L).coerceAtMost(60 * 60)
         } else {
-            null
+            val start = progressStartMs
+            if (start != null && percent in 1..99) {
+                val elapsedMs = (now - start).coerceAtLeast(1)
+                val remainingMs = (elapsedMs * (100 - percent)) / percent
+                (remainingMs / 1000L).coerceAtMost(60 * 60)
+            } else null
         }
 
         _state.update {

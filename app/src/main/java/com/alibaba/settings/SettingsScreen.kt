@@ -150,6 +150,23 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
+                            Text(text = "Ülke/grup filtreleme", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                text = "Kapalı olursa ülke seçimi dikkate alınmaz; stream testi geçen linkler direkt işlenir. Açık olursa seçtiğin ülkelere göre filtrelenir.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        Switch(
+                            checked = settings.enableCountryFiltering,
+                            onCheckedChange = viewModel::setEnableCountryFiltering
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(text = "Adult/XXX grupları atla", style = MaterialTheme.typography.titleMedium)
                             Text(
                                 text = "Açık olursa +18 içerik grupları otomatik olarak filtrelenir.",

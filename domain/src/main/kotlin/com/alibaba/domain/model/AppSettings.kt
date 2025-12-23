@@ -6,5 +6,6 @@ data class AppSettings(
     val minPlayableStreamsToPass: Int = 1,
     val delayBetweenStreamTestsMs: Long = 0L,
     val skipAdultGroups: Boolean = true,
-    val shuffleCandidates: Boolean = true
+    val shuffleCandidates: Boolean = true,
+    val enableCountryFiltering: Boolean = true
 )

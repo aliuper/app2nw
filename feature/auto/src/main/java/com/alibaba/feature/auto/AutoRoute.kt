@@ -131,7 +131,7 @@ fun AutoScreen(
                 actions = {
                     IconButton(
                         onClick = {
-                            Toast.makeText(context, "Ayarlar yakında", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Ayarlar: Ana menüden açabilirsiniz", Toast.LENGTH_SHORT).show()
                         }
                     ) {
                         Icon(imageVector = Icons.Filled.Tune, contentDescription = "Ayarlar")
