@@ -34,6 +34,19 @@ class AnalyzeViewModel @Inject constructor(
         _state.update { it.copy(scope = scope) }
     }
 
+    fun clearAll() {
+        _state.update {
+            it.copy(
+                inputText = "",
+                query = "",
+                loading = false,
+                progressText = null,
+                reportText = null,
+                errorMessage = null
+            )
+        }
+    }
+
     fun runSearch() {
         val urls = extractIptvUrls(state.value.inputText)
         val query = state.value.query.trim()

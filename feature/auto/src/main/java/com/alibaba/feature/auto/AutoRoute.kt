@@ -5,6 +5,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
@@ -36,6 +39,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Link
@@ -46,9 +50,14 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.alibaba.domain.model.OutputDelivery
@@ -82,10 +91,32 @@ fun AutoRoute(
         }
     )
 
+    var pendingSaveText by remember { mutableStateOf<String?>(null) }
+    var pendingSaveName by remember { mutableStateOf<String?>(null) }
+    val textSaver = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/plain"),
+        onResult = { uri ->
+            val text = pendingSaveText
+            if (uri != null && text != null) {
+                try {
+                    context.contentResolver.openOutputStream(uri)?.use { os ->
+                        os.write(text.toByteArray(Charsets.UTF_8))
+                    }
+                    Toast.makeText(context, "Kaydedildi", Toast.LENGTH_SHORT).show()
+                } catch (t: Throwable) {
+                    Toast.makeText(context, t.message ?: "Kaydedilemedi", Toast.LENGTH_SHORT).show()
+                }
+            }
+            pendingSaveText = null
+            pendingSaveName = null
+        }
+    )
+
     AutoScreen(
         state = state,
         onInputChange = viewModel::onInputChange,
         onExtract = viewModel::extract,
+        onClear = viewModel::clearAll,
         onToggleCountry = viewModel::toggleCountry,
         onMergeChange = viewModel::setMergeIntoSingle,
         onAutoDetectFormatChange = viewModel::setAutoDetectFormat,
@@ -94,6 +125,11 @@ fun AutoRoute(
         onNext = viewModel::nextStep,
         onRun = viewModel::run,
         onPickFolder = { folderPicker.launch(null) },
+        onSaveText = { suggestedName, text ->
+            pendingSaveName = suggestedName
+            pendingSaveText = text
+            textSaver.launch(suggestedName)
+        },
         modifier = modifier
     )
 }
@@ -104,6 +140,7 @@ fun AutoScreen(
     state: AutoUiState,
     onInputChange: (String) -> Unit,
     onExtract: () -> Unit,
+    onClear: () -> Unit,
     onToggleCountry: (String, Boolean) -> Unit,
     onMergeChange: (Boolean) -> Unit,
     onAutoDetectFormatChange: (Boolean) -> Unit,
@@ -112,13 +149,15 @@ fun AutoScreen(
     onNext: () -> Unit,
     onRun: () -> Unit,
     onPickFolder: () -> Unit,
+    onSaveText: (suggestedName: String, text: String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val scroll = rememberScrollState()
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
 
     val maxStep = if (state.outputDelivery == OutputDelivery.LINKS) {
-        if (state.enableCountryFiltering) 1 else 0
+        if (state.enableCountryFiltering) 2 else 1
     } else {
         if (state.enableCountryFiltering) 3 else 2
     }
@@ -209,41 +248,47 @@ fun AutoScreen(
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(text = "İlerleme", style = MaterialTheme.typography.titleMedium)
-                        state.extractedUrls.forEachIndexed { index, item ->
-                            val statusColor = when (item.success) {
-                                true -> MaterialTheme.colorScheme.primary
-                                false -> MaterialTheme.colorScheme.error
-                                null -> MaterialTheme.colorScheme.onSurface
-                            }
-                            val icon = when (item.success) {
-                                true -> Icons.Filled.CheckCircle
-                                false -> Icons.Filled.Warning
-                                null -> Icons.Filled.PlayArrow
-                            }
-                            val suffix = buildString {
-                                item.status?.let { append(" - "); append(it) }
-                                if (item.testedStreams > 0) {
-                                    append(" (${item.testedStreams} test)")
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 260.dp)
+                        ) {
+                            itemsIndexed(state.extractedUrls, key = { _, item -> item.url }) { index, item ->
+                                val statusColor = when (item.success) {
+                                    true -> MaterialTheme.colorScheme.primary
+                                    false -> MaterialTheme.colorScheme.error
+                                    null -> MaterialTheme.colorScheme.onSurface
                                 }
-                            }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Icon(imageVector = icon, contentDescription = null, tint = statusColor)
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(text = "${index + 1}. ${item.url}", color = statusColor)
-                                    if (suffix.isNotBlank()) {
-                                        Text(
-                                            text = suffix.trim(),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = statusColor
-                                        )
+                                val icon = when (item.success) {
+                                    true -> Icons.Filled.CheckCircle
+                                    false -> Icons.Filled.Warning
+                                    null -> Icons.Filled.PlayArrow
+                                }
+                                val suffix = buildString {
+                                    item.status?.let { append(" - "); append(it) }
+                                    if (item.testedStreams > 0) {
+                                        append(" (").append(item.testedStreams).append(" test)")
                                     }
                                 }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Icon(imageVector = icon, contentDescription = null, tint = statusColor)
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(text = "${index + 1}. ${item.url}", color = statusColor)
+                                        if (suffix.isNotBlank()) {
+                                            Text(
+                                                text = suffix.trim(),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = statusColor
+                                            )
+                                        }
+                                    }
+                                }
+                                HorizontalDivider()
                             }
-                            HorizontalDivider()
                         }
                     }
                 }
@@ -268,20 +313,45 @@ fun AutoScreen(
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(text = "Linkleri Ayıkla")
                         }
+
+                        Button(
+                            onClick = {
+                                val clip = clipboard.getText()?.text?.trim()
+                                if (clip.isNullOrBlank()) {
+                                    Toast.makeText(context, "Pano boş", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    val next = if (state.inputText.isBlank()) clip else state.inputText.trimEnd() + "\n" + clip
+                                    onInputChange(next)
+                                }
+                            },
+                            enabled = !state.loading
+                        ) {
+                            Text(text = "Panodan Yapıştır")
+                        }
+
+                        Button(onClick = onClear, enabled = !state.loading) {
+                            Text(text = "Temizle")
+                        }
                     }
 
                     if (state.extractedUrls.isNotEmpty()) {
                         Card(modifier = Modifier.fillMaxWidth()) {
                             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text(text = "Bulunan Linkler", style = MaterialTheme.typography.titleMedium)
-                                state.extractedUrls.forEachIndexed { index, item ->
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        Icon(imageVector = Icons.Filled.Link, contentDescription = null)
-                                        Text(text = "${index + 1}. ${item.url}")
+                                Text(text = "Bulunan Linkler (${state.extractedUrls.size})", style = MaterialTheme.typography.titleMedium)
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(max = 220.dp)
+                                ) {
+                                    itemsIndexed(state.extractedUrls, key = { _, item -> item.url }) { index, item ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            Icon(imageVector = Icons.Filled.Link, contentDescription = null)
+                                            Text(text = "${index + 1}. ${item.url}")
+                                        }
                                     }
                                 }
                             }
@@ -458,6 +528,38 @@ fun AutoScreen(
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(text = "Rapor", style = MaterialTheme.typography.titleMedium)
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Button(
+                                onClick = {
+                                    clipboard.setText(AnnotatedString(report))
+                                    Toast.makeText(context, "Kopyalandı", Toast.LENGTH_SHORT).show()
+                                }
+                            ) {
+                                Icon(imageVector = Icons.Filled.ContentCopy, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(text = "Kopyala")
+                            }
+                            Button(
+                                onClick = {
+                                    val intent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_TEXT, report)
+                                    }
+                                    context.startActivity(Intent.createChooser(intent, null))
+                                }
+                            ) {
+                                Icon(imageVector = Icons.Filled.Share, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(text = "Paylaş")
+                            }
+                            Button(
+                                onClick = {
+                                    onSaveText("rapor.txt", report)
+                                }
+                            ) {
+                                Text(text = "Txt")
+                            }
+                        }
                         Text(text = report, style = MaterialTheme.typography.bodySmall)
                     }
                 }
@@ -466,6 +568,38 @@ fun AutoScreen(
             state.outputPreview?.let { preview ->
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(text = "Önizleme", style = MaterialTheme.typography.titleMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Button(
+                        onClick = {
+                            clipboard.setText(AnnotatedString(preview))
+                            Toast.makeText(context, "Kopyalandı", Toast.LENGTH_SHORT).show()
+                        }
+                    ) {
+                        Icon(imageVector = Icons.Filled.ContentCopy, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(text = "Kopyala")
+                    }
+                    Button(
+                        onClick = {
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, preview)
+                            }
+                            context.startActivity(Intent.createChooser(intent, null))
+                        }
+                    ) {
+                        Icon(imageVector = Icons.Filled.Share, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(text = "Paylaş")
+                    }
+                    Button(
+                        onClick = {
+                            onSaveText("linkler.txt", preview)
+                        }
+                    ) {
+                        Text(text = "Txt")
+                    }
+                }
                 SelectionContainer {
                     Text(text = preview, style = MaterialTheme.typography.bodySmall)
                 }

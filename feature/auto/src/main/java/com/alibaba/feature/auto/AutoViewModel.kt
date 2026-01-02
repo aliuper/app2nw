@@ -47,15 +47,18 @@ class AutoViewModel @Inject constructor(
 
     private var progressStartMs: Long? = null
     private val completedUrlDurationsMs = ArrayList<Long>(64)
+    private var lastStreamUiUpdateMs: Long = 0L
 
     init {
         viewModelScope.launch {
             settingsRepository.settings.collect { s ->
                 _state.update { st ->
-                    st.copy(
+                    val updated = st.copy(
                         enableCountryFiltering = s.enableCountryFiltering,
                         outputDelivery = s.outputDelivery
                     )
+                    val max = maxStepIndex(updated)
+                    updated.copy(step = updated.step.coerceIn(0, max))
                 }
             }
         }
@@ -78,7 +81,11 @@ class AutoViewModel @Inject constructor(
 
     private fun maxStepIndex(s: AutoUiState): Int {
         return if (s.outputDelivery == OutputDelivery.LINKS) {
-            if (s.enableCountryFiltering) 1 else 0
+            // Steps in LINKS mode:
+            // 0: Link/Metin
+            // 1: (optional) Ülke Seç
+            // last: Başlat
+            if (s.enableCountryFiltering) 2 else 1
         } else {
             if (s.enableCountryFiltering) 3 else 2
         }
@@ -86,10 +93,19 @@ class AutoViewModel @Inject constructor(
 
     fun extract() {
         val urls = extractIptvUrls(state.value.inputText)
+            .asSequence()
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .toList()
         _state.update {
             it.copy(
                 extractedUrls = urls.map { u -> UrlItem(url = u) },
                 errorMessage = if (urls.isEmpty()) "Link bulunamadı" else null,
+                loading = false,
+                progressPercent = 0,
+                progressStep = null,
+                etaSeconds = null,
                 outputPreview = null,
                 savedFiles = emptyList()
             )
@@ -117,6 +133,29 @@ class AutoViewModel @Inject constructor(
 
     fun setOutputFolder(uriString: String?) {
         _state.update { it.copy(outputFolderUriString = uriString) }
+    }
+
+    fun clearAll() {
+        _state.update { s ->
+            s.copy(
+                step = 0,
+                inputText = "",
+                extractedUrls = emptyList(),
+                loading = false,
+                progressPercent = 0,
+                progressStep = null,
+                etaSeconds = null,
+                errorMessage = null,
+                reportText = null,
+                workingUrls = emptyList(),
+                failingUrls = emptyList(),
+                lastRunSaved = false,
+                outputPreview = null,
+                savedFiles = emptyList(),
+                mergeRenameWarning = null,
+                backgroundWorkId = null
+            )
+        }
     }
 
     fun run() {
@@ -198,16 +237,21 @@ class AutoViewModel @Inject constructor(
                     }
 
                     val (ok, testedCount, totalCount) = runStreamTestDetailed(playlist) { tested, total ->
-                        _state.update { s ->
-                            val items = s.extractedUrls.toMutableList()
-                            if (index in items.indices) {
-                                items[index] = items[index].copy(
-                                    status = "Test ${tested}/${total}",
-                                    success = null,
-                                    testedStreams = tested
-                                )
+                        val now = SystemClock.elapsedRealtime()
+                        val shouldUpdate = tested >= total || (now - lastStreamUiUpdateMs) >= 250
+                        if (shouldUpdate) {
+                            lastStreamUiUpdateMs = now
+                            _state.update { s ->
+                                val items = s.extractedUrls.toMutableList()
+                                if (index in items.indices) {
+                                    items[index] = items[index].copy(
+                                        status = "Test ${tested}/${total}",
+                                        success = null,
+                                        testedStreams = tested
+                                    )
+                                }
+                                s.copy(extractedUrls = items)
                             }
-                            s.copy(extractedUrls = items)
                         }
                     }
 
