@@ -206,6 +206,49 @@ fun AutoScreen(
                 }
             )
         },
+        bottomBar = {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val canGoBack = stepIndex > 0 && !state.loading
+                Button(onClick = onPrev, enabled = canGoBack) {
+                    Icon(imageVector = Icons.Filled.ArrowBack, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(text = "Geri")
+                }
+
+                Box(modifier = Modifier.weight(1f))
+
+                val canGoNext = !state.loading && when {
+                    stepIndex == inputStepIndex -> state.extractedUrls.isNotEmpty()
+                    countryStepIndex != null && stepIndex == countryStepIndex -> state.selectedCountries.isNotEmpty()
+                    else -> true
+                }
+
+                if (stepIndex < (stepCount - 1)) {
+                    Button(onClick = onNext, enabled = canGoNext) {
+                        Text(text = "İleri")
+                    }
+                } else {
+                    // LINKS modunda test otomatik başlar; FILE modunda burada Başlat butonu kalır.
+                    if (state.outputDelivery == OutputDelivery.FILE) {
+                        Button(onClick = onRun, enabled = canGoNext && state.extractedUrls.isNotEmpty()) {
+                            Icon(imageVector = Icons.Filled.PlayArrow, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(text = "Başlat")
+                        }
+                    } else {
+                        Button(onClick = {}, enabled = false) {
+                            Text(text = if (state.loading) "Test ediliyor" else "Bitti")
+                        }
+                    }
+                }
+            }
+        },
         modifier = modifier.fillMaxSize()
     ) { padding ->
         Column(
@@ -542,47 +585,6 @@ fun AutoScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(4.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                val canGoBack = stepIndex > 0 && !state.loading
-                Button(onClick = onPrev, enabled = canGoBack) {
-                    Icon(imageVector = Icons.Filled.ArrowBack, contentDescription = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(text = "Geri")
-                }
-
-                Box(modifier = Modifier.weight(1f))
-
-                val canGoNext = !state.loading && when (stepIndex) {
-                    0 -> state.extractedUrls.isNotEmpty()
-                    1 -> !state.enableCountryFiltering || state.selectedCountries.isNotEmpty()
-                    else -> true
-                }
-
-                if (stepIndex < (stepCount - 1)) {
-                    Button(onClick = onNext, enabled = canGoNext) {
-                        Text(text = "İleri")
-                    }
-                } else {
-                    // LINKS modunda test otomatik başlar; FILE modunda burada Başlat butonu kalır.
-                    if (state.outputDelivery == OutputDelivery.FILE) {
-                        Button(onClick = onRun, enabled = canGoNext && state.extractedUrls.isNotEmpty()) {
-                            Icon(imageVector = Icons.Filled.PlayArrow, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(text = "Başlat")
-                        }
-                    } else {
-                        Button(onClick = {}, enabled = false) {
-                            Text(text = if (state.loading) "Test ediliyor" else "Bitti")
-                        }
-                    }
-                }
-            }
-
             if (state.savedFiles.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -694,4 +696,4 @@ fun AutoScreen(
             }
         }
     }
- 
+}
