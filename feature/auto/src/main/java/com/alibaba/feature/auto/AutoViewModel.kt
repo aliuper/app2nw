@@ -69,9 +69,26 @@ class AutoViewModel @Inject constructor(
     }
 
     fun nextStep() {
-        _state.update { s ->
+        val s = state.value
+        if (s.loading) return
+
+        if (s.outputDelivery == OutputDelivery.LINKS) {
             val max = maxStepIndex(s)
-            s.copy(step = (s.step + 1).coerceAtMost(max), errorMessage = null)
+            val next = (s.step + 1).coerceAtMost(max)
+            _state.update { it.copy(step = next, errorMessage = null) }
+
+            val shouldStart = when {
+                !s.enableCountryFiltering && next >= 1 -> true
+                s.enableCountryFiltering && s.step == 1 && next >= 2 -> true
+                else -> false
+            }
+            if (shouldStart) run()
+            return
+        }
+
+        _state.update { st ->
+            val max = maxStepIndex(st)
+            st.copy(step = (st.step + 1).coerceAtMost(max), errorMessage = null)
         }
     }
 
@@ -107,6 +124,9 @@ class AutoViewModel @Inject constructor(
                 progressStep = null,
                 etaSeconds = null,
                 outputPreview = null,
+                workingUrls = emptyList(),
+                selectedWorkingUrls = emptySet(),
+                failingUrls = emptyList(),
                 savedFiles = emptyList()
             )
         }
@@ -148,6 +168,7 @@ class AutoViewModel @Inject constructor(
                 errorMessage = null,
                 reportText = null,
                 workingUrls = emptyList(),
+                selectedWorkingUrls = emptySet(),
                 failingUrls = emptyList(),
                 lastRunSaved = false,
                 outputPreview = null,
@@ -155,6 +176,13 @@ class AutoViewModel @Inject constructor(
                 mergeRenameWarning = null,
                 backgroundWorkId = null
             )
+        }
+    }
+
+    fun toggleWorkingUrl(url: String, enabled: Boolean) {
+        _state.update { s ->
+            val updated = if (enabled) s.selectedWorkingUrls + url else s.selectedWorkingUrls - url
+            s.copy(selectedWorkingUrls = updated)
         }
     }
 
@@ -423,6 +451,7 @@ class AutoViewModel @Inject constructor(
                     etaSeconds = null,
                     reportText = report,
                     workingUrls = working,
+                    selectedWorkingUrls = if (outputDelivery == OutputDelivery.LINKS) working.toSet() else it.selectedWorkingUrls,
                     failingUrls = failing,
                     savedFiles = saved,
                     lastRunSaved = true,

@@ -35,6 +35,7 @@ data class AutoUiState(
     val errorMessage: String? = null,
     val reportText: String? = null,
     val workingUrls: List<String> = emptyList(),
+    val selectedWorkingUrls: Set<String> = emptySet(),
     val failingUrls: List<String> = emptyList(),
     val lastRunSaved: Boolean = false,
     val outputPreview: String? = null,

@@ -118,6 +118,7 @@ fun AutoRoute(
         onExtract = viewModel::extract,
         onClear = viewModel::clearAll,
         onToggleCountry = viewModel::toggleCountry,
+        onToggleWorkingUrl = viewModel::toggleWorkingUrl,
         onMergeChange = viewModel::setMergeIntoSingle,
         onAutoDetectFormatChange = viewModel::setAutoDetectFormat,
         onFormatChange = viewModel::setOutputFormat,
@@ -142,6 +143,7 @@ fun AutoScreen(
     onExtract: () -> Unit,
     onClear: () -> Unit,
     onToggleCountry: (String, Boolean) -> Unit,
+    onToggleWorkingUrl: (String, Boolean) -> Unit,
     onMergeChange: (Boolean) -> Unit,
     onAutoDetectFormatChange: (Boolean) -> Unit,
     onFormatChange: (OutputFormat) -> Unit,
@@ -176,6 +178,18 @@ fun AutoScreen(
     val stepCount = visibleSteps.size
     val stepIndex = actualStep.coerceIn(0, stepCount - 1)
     val stepTitle = "${stepIndex + 1}/${stepCount} ${visibleSteps[stepIndex]}"
+
+    val inputStepIndex = 0
+    val countryStepIndex = if (state.enableCountryFiltering) 1 else null
+    val outputFormatStepIndex = if (state.outputDelivery == OutputDelivery.FILE) {
+        if (state.enableCountryFiltering) 2 else 1
+    } else null
+    val mergeStepIndex = if (state.outputDelivery == OutputDelivery.FILE) {
+        if (state.enableCountryFiltering) 3 else 2
+    } else null
+    val startStepIndex = if (state.outputDelivery == OutputDelivery.LINKS) {
+        if (state.enableCountryFiltering) 2 else 1
+    } else null
 
     Scaffold(
         topBar = {
@@ -294,8 +308,8 @@ fun AutoScreen(
                 }
             }
 
-            when (stepIndex) {
-                0 -> {
+            when {
+                stepIndex == inputStepIndex -> {
                     OutlinedTextField(
                         value = state.inputText,
                         onValueChange = onInputChange,
@@ -359,8 +373,7 @@ fun AutoScreen(
                     }
                 }
 
-                1 -> {
-                    if (!state.enableCountryFiltering) return@Column
+                countryStepIndex != null && stepIndex == countryStepIndex -> {
                     Text(text = "Ülke Seç", style = MaterialTheme.typography.titleMedium)
                     defaultCountries.forEach { code ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -374,8 +387,7 @@ fun AutoScreen(
                     }
                 }
 
-                2 -> {
-                    if (state.outputDelivery != OutputDelivery.FILE) return@Column
+                outputFormatStepIndex != null && stepIndex == outputFormatStepIndex -> {
                     Text(text = "Çıktı Formatı", style = MaterialTheme.typography.titleMedium)
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -400,16 +412,82 @@ fun AutoScreen(
                 }
             }
 
-                else -> {
-                    if (state.outputDelivery != OutputDelivery.FILE) {
+                startStepIndex != null && stepIndex == startStepIndex -> {
                         Card(modifier = Modifier.fillMaxWidth()) {
                             Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(text = "Link modu", style = MaterialTheme.typography.titleMedium)
-                                Text(text = "Bu modda dosya kaydı yapılmaz. Testi başlatınca sadece çalışan linkler listelenir.")
+                                Text(text = "Bu modda dosya kaydı yapılmaz. Test bittiğinde çalışan linkler aşağıda listelenir.")
                             }
                         }
-                        return@Column
-                    }
+
+                        if (state.loading) {
+                            Card(modifier = Modifier.fillMaxWidth()) {
+                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(text = "Test devam ediyor...", style = MaterialTheme.typography.titleMedium)
+                                    Text(text = state.progressStep ?: "")
+                                }
+                            }
+                        }
+
+                        if (!state.loading && state.workingUrls.isNotEmpty()) {
+                            Card(modifier = Modifier.fillMaxWidth()) {
+                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text(text = "Çalışan Linkler (${state.workingUrls.size})", style = MaterialTheme.typography.titleMedium)
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        val selectedText = state.workingUrls
+                                            .asSequence()
+                                            .filter { it in state.selectedWorkingUrls }
+                                            .joinToString("\n")
+
+                                        Button(
+                                            onClick = {
+                                                clipboard.setText(AnnotatedString(selectedText))
+                                                Toast.makeText(context, "Kopyalandı", Toast.LENGTH_SHORT).show()
+                                            },
+                                            enabled = selectedText.isNotBlank()
+                                        ) {
+                                            Icon(imageVector = Icons.Filled.ContentCopy, contentDescription = null)
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(text = "Seçileni Kopyala")
+                                        }
+
+                                        Button(
+                                            onClick = {
+                                                onSaveText("secili_linkler.txt", selectedText)
+                                            },
+                                            enabled = selectedText.isNotBlank()
+                                        ) {
+                                            Text(text = "Txt")
+                                        }
+                                    }
+
+                                    LazyColumn(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(max = 320.dp)
+                                    ) {
+                                        itemsIndexed(state.workingUrls, key = { _, u -> u }) { _, url ->
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                Checkbox(
+                                                    checked = url in state.selectedWorkingUrls,
+                                                    onCheckedChange = { checked -> onToggleWorkingUrl(url, checked) }
+                                                )
+                                                Text(text = url, modifier = Modifier.weight(1f))
+                                            }
+                                            HorizontalDivider()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                }
+
+                mergeStepIndex != null && stepIndex == mergeStepIndex -> {
                     Text(text = "Tek / Çok Dosya", style = MaterialTheme.typography.titleMedium)
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -459,6 +537,9 @@ fun AutoScreen(
                     }
                 }
             }
+
+                else -> Unit
+            }
         }
 
         Spacer(modifier = Modifier.height(4.dp))
@@ -487,10 +568,17 @@ fun AutoScreen(
                         Text(text = "İleri")
                     }
                 } else {
-                    Button(onClick = onRun, enabled = canGoNext && state.extractedUrls.isNotEmpty()) {
-                        Icon(imageVector = Icons.Filled.PlayArrow, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(text = "Başlat")
+                    // LINKS modunda test otomatik başlar; FILE modunda burada Başlat butonu kalır.
+                    if (state.outputDelivery == OutputDelivery.FILE) {
+                        Button(onClick = onRun, enabled = canGoNext && state.extractedUrls.isNotEmpty()) {
+                            Icon(imageVector = Icons.Filled.PlayArrow, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(text = "Başlat")
+                        }
+                    } else {
+                        Button(onClick = {}, enabled = false) {
+                            Text(text = if (state.loading) "Test ediliyor" else "Bitti")
+                        }
                     }
                 }
             }
