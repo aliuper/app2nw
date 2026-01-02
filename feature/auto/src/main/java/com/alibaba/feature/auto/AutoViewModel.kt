@@ -67,21 +67,20 @@ class AutoViewModel @Inject constructor(
 
     fun nextStep() {
         _state.update { s ->
-            val next = when {
-                s.step == 0 && !s.enableCountryFiltering -> 2
-                else -> (s.step + 1)
-            }.coerceAtMost(3)
-            s.copy(step = next, errorMessage = null)
+            val max = maxStepIndex(s)
+            s.copy(step = (s.step + 1).coerceAtMost(max), errorMessage = null)
         }
     }
 
     fun prevStep() {
-        _state.update { s ->
-            val prev = when {
-                s.step == 2 && !s.enableCountryFiltering -> 0
-                else -> (s.step - 1)
-            }.coerceAtLeast(0)
-            s.copy(step = prev, errorMessage = null)
+        _state.update { s -> s.copy(step = (s.step - 1).coerceAtLeast(0), errorMessage = null) }
+    }
+
+    private fun maxStepIndex(s: AutoUiState): Int {
+        return if (s.outputDelivery == OutputDelivery.LINKS) {
+            if (s.enableCountryFiltering) 1 else 0
+        } else {
+            if (s.enableCountryFiltering) 3 else 2
         }
     }
 

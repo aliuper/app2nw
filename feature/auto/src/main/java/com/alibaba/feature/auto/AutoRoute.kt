@@ -117,19 +117,26 @@ fun AutoScreen(
     val scroll = rememberScrollState()
     val context = LocalContext.current
 
-    val actualStep = state.step.coerceIn(0, 3)
-    val stepCount = if (state.enableCountryFiltering) 4 else 3
-    val stepIndex = when {
-        !state.enableCountryFiltering && actualStep >= 2 -> actualStep - 1
-        else -> actualStep
-    }.coerceIn(0, stepCount - 1)
-
-    val stepTitle = when (actualStep) {
-        0 -> "${stepIndex + 1}/${stepCount} Link / Metin"
-        1 -> "${stepIndex + 1}/${stepCount} Ülke Seç"
-        2 -> "${stepIndex + 1}/${stepCount} Çıktı Formatı"
-        else -> "${stepIndex + 1}/${stepCount} Tek/Çok Dosya"
+    val maxStep = if (state.outputDelivery == OutputDelivery.LINKS) {
+        if (state.enableCountryFiltering) 1 else 0
+    } else {
+        if (state.enableCountryFiltering) 3 else 2
     }
+    val actualStep = state.step.coerceIn(0, maxStep)
+
+    val visibleSteps = buildList {
+        add("Link / Metin")
+        if (state.enableCountryFiltering) add("Ülke Seç")
+        if (state.outputDelivery == OutputDelivery.FILE) {
+            add("Çıktı Formatı")
+            add("Tek/Çok Dosya")
+        } else {
+            add("Başlat")
+        }
+    }
+    val stepCount = visibleSteps.size
+    val stepIndex = actualStep.coerceIn(0, stepCount - 1)
+    val stepTitle = "${stepIndex + 1}/${stepCount} ${visibleSteps[stepIndex]}"
 
     Scaffold(
         topBar = {
@@ -298,6 +305,7 @@ fun AutoScreen(
                 }
 
                 2 -> {
+                    if (state.outputDelivery != OutputDelivery.FILE) return@Column
                     Text(text = "Çıktı Formatı", style = MaterialTheme.typography.titleMedium)
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -323,6 +331,15 @@ fun AutoScreen(
             }
 
                 else -> {
+                    if (state.outputDelivery != OutputDelivery.FILE) {
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(text = "Link modu", style = MaterialTheme.typography.titleMedium)
+                                Text(text = "Bu modda dosya kaydı yapılmaz. Testi başlatınca sadece çalışan linkler listelenir.")
+                            }
+                        }
+                        return@Column
+                    }
                     Text(text = "Tek / Çok Dosya", style = MaterialTheme.typography.titleMedium)
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -389,7 +406,7 @@ fun AutoScreen(
 
                 Box(modifier = Modifier.weight(1f))
 
-                val canGoNext = !state.loading && when (actualStep) {
+                val canGoNext = !state.loading && when (stepIndex) {
                     0 -> state.extractedUrls.isNotEmpty()
                     1 -> !state.enableCountryFiltering || state.selectedCountries.isNotEmpty()
                     else -> true
