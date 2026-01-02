@@ -22,6 +22,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.RadioButton
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Tune
@@ -31,6 +32,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.alibaba.domain.model.OutputDelivery
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
@@ -160,6 +162,37 @@ fun SettingsScreen(
                             checked = settings.enableCountryFiltering,
                             onCheckedChange = viewModel::setEnableCountryFiltering
                         )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(text = "Çıktı türü", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                text = "Dosya seçilirse playlist dosyası kaydedilir. Link seçilirse sadece sağlam linkler listelenir.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = settings.outputDelivery == OutputDelivery.FILE,
+                                onClick = { viewModel.setOutputDelivery(OutputDelivery.FILE) }
+                            )
+                            Text(text = "Dosya")
+                        }
+
+                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = settings.outputDelivery == OutputDelivery.LINKS,
+                                onClick = { viewModel.setOutputDelivery(OutputDelivery.LINKS) }
+                            )
+                            Text(text = "Link")
+                        }
                     }
 
                     Row(

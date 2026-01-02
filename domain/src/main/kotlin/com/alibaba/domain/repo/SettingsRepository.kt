@@ -1,6 +1,7 @@
 package com.alibaba.domain.repo
 
 import com.alibaba.domain.model.AppSettings
+import com.alibaba.domain.model.OutputDelivery
 import kotlinx.coroutines.flow.Flow
 
 interface SettingsRepository {
@@ -13,6 +14,7 @@ interface SettingsRepository {
     suspend fun setSkipAdultGroups(value: Boolean)
     suspend fun setShuffleCandidates(value: Boolean)
     suspend fun setEnableCountryFiltering(value: Boolean)
+    suspend fun setOutputDelivery(value: OutputDelivery)
 
     suspend fun resetToDefaults()
 }

@@ -3,6 +3,7 @@ package com.alibaba.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.alibaba.domain.model.AppSettings
+import com.alibaba.domain.model.OutputDelivery
 import com.alibaba.domain.repo.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -58,6 +59,10 @@ class SettingsViewModel @Inject constructor(
 
     fun setEnableCountryFiltering(value: Boolean) = launchSave {
         settingsRepository.setEnableCountryFiltering(value)
+    }
+
+    fun setOutputDelivery(value: OutputDelivery) = launchSave {
+        settingsRepository.setOutputDelivery(value)
     }
 
     fun resetToDefaults() = launchSave {

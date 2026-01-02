@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -50,6 +51,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.alibaba.domain.model.OutputDelivery
 import com.alibaba.domain.model.OutputFormat
 
 private val defaultCountries = listOf(
@@ -115,13 +117,18 @@ fun AutoScreen(
     val scroll = rememberScrollState()
     val context = LocalContext.current
 
-    val stepCount = 4
-    val stepIndex = state.step.coerceIn(0, 3)
-    val stepTitle = when (stepIndex) {
-        0 -> "1/${stepCount} Link / Metin"
-        1 -> "2/${stepCount} Ülke Seç"
-        2 -> "3/${stepCount} Çıktı Formatı"
-        else -> "4/${stepCount} Tek/Çok Dosya"
+    val actualStep = state.step.coerceIn(0, 3)
+    val stepCount = if (state.enableCountryFiltering) 4 else 3
+    val stepIndex = when {
+        !state.enableCountryFiltering && actualStep >= 2 -> actualStep - 1
+        else -> actualStep
+    }.coerceIn(0, stepCount - 1)
+
+    val stepTitle = when (actualStep) {
+        0 -> "${stepIndex + 1}/${stepCount} Link / Metin"
+        1 -> "${stepIndex + 1}/${stepCount} Ülke Seç"
+        2 -> "${stepIndex + 1}/${stepCount} Çıktı Formatı"
+        else -> "${stepIndex + 1}/${stepCount} Tek/Çok Dosya"
     }
 
     Scaffold(
@@ -276,6 +283,7 @@ fun AutoScreen(
                 }
 
                 1 -> {
+                    if (!state.enableCountryFiltering) return@Column
                     Text(text = "Ülke Seç", style = MaterialTheme.typography.titleMedium)
                     defaultCountries.forEach { code ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -341,14 +349,16 @@ fun AutoScreen(
                     }
                 }
 
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(text = "Kayıt Klasörü", style = MaterialTheme.typography.titleMedium)
-                            Text(text = state.outputFolderUriString ?: "Download/IPTV (varsayılan)", style = MaterialTheme.typography.bodySmall)
-                            Button(onClick = onPickFolder, enabled = !state.loading) {
-                                Icon(imageVector = Icons.Filled.FolderOpen, contentDescription = null)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(text = "Klasör Seç")
+                    if (state.outputDelivery == OutputDelivery.FILE) {
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(text = "Kayıt Klasörü", style = MaterialTheme.typography.titleMedium)
+                                Text(text = state.outputFolderUriString ?: "Download/IPTV (varsayılan)", style = MaterialTheme.typography.bodySmall)
+                                Button(onClick = onPickFolder, enabled = !state.loading) {
+                                    Icon(imageVector = Icons.Filled.FolderOpen, contentDescription = null)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(text = "Klasör Seç")
+                                }
                             }
                         }
                     }
@@ -379,13 +389,13 @@ fun AutoScreen(
 
                 Box(modifier = Modifier.weight(1f))
 
-                val canGoNext = !state.loading && when (stepIndex) {
+                val canGoNext = !state.loading && when (actualStep) {
                     0 -> state.extractedUrls.isNotEmpty()
-                    1 -> state.selectedCountries.isNotEmpty()
+                    1 -> !state.enableCountryFiltering || state.selectedCountries.isNotEmpty()
                     else -> true
                 }
 
-                if (stepIndex < 3) {
+                if (stepIndex < (stepCount - 1)) {
                     Button(onClick = onNext, enabled = canGoNext) {
                         Text(text = "İleri")
                     }
@@ -439,7 +449,9 @@ fun AutoScreen(
             state.outputPreview?.let { preview ->
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(text = "Önizleme", style = MaterialTheme.typography.titleMedium)
-                Text(text = preview, style = MaterialTheme.typography.bodySmall)
+                SelectionContainer {
+                    Text(text = preview, style = MaterialTheme.typography.bodySmall)
+                }
             }
         }
     }

@@ -5,8 +5,10 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.alibaba.domain.model.AppSettings
+import com.alibaba.domain.model.OutputDelivery
 import com.alibaba.domain.repo.SettingsRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
@@ -27,7 +29,10 @@ class SettingsRepositoryImpl @Inject constructor(
             delayBetweenStreamTestsMs = prefs[Keys.DELAY_BETWEEN_TESTS_MS] ?: AppSettings().delayBetweenStreamTestsMs,
             skipAdultGroups = prefs[Keys.SKIP_ADULT_GROUPS] ?: AppSettings().skipAdultGroups,
             shuffleCandidates = prefs[Keys.SHUFFLE_CANDIDATES] ?: AppSettings().shuffleCandidates,
-            enableCountryFiltering = prefs[Keys.ENABLE_COUNTRY_FILTERING] ?: AppSettings().enableCountryFiltering
+            enableCountryFiltering = prefs[Keys.ENABLE_COUNTRY_FILTERING] ?: AppSettings().enableCountryFiltering,
+            outputDelivery = prefs[Keys.OUTPUT_DELIVERY]
+                ?.let { v -> runCatching { OutputDelivery.valueOf(v) }.getOrNull() }
+                ?: AppSettings().outputDelivery
         )
     }
 
@@ -63,6 +68,10 @@ class SettingsRepositoryImpl @Inject constructor(
         context.settingsDataStore.edit { it[Keys.ENABLE_COUNTRY_FILTERING] = value }
     }
 
+    override suspend fun setOutputDelivery(value: OutputDelivery) {
+        context.settingsDataStore.edit { it[Keys.OUTPUT_DELIVERY] = value.name }
+    }
+
     override suspend fun resetToDefaults() {
         context.settingsDataStore.edit { it.clear() }
     }
@@ -75,5 +84,6 @@ class SettingsRepositoryImpl @Inject constructor(
         val SKIP_ADULT_GROUPS = booleanPreferencesKey("skipAdultGroups")
         val SHUFFLE_CANDIDATES = booleanPreferencesKey("shuffleCandidates")
         val ENABLE_COUNTRY_FILTERING = booleanPreferencesKey("enableCountryFiltering")
+        val OUTPUT_DELIVERY = stringPreferencesKey("outputDelivery")
     }
 }

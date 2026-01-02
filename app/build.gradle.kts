@@ -60,6 +60,7 @@ dependencies {
     implementation(project(":feature:home"))
     implementation(project(":feature:manual"))
     implementation(project(":feature:auto"))
+    implementation(project(":feature:analyze"))
     implementation(project(":feature:editor"))
     implementation(project(":feature:export"))
 

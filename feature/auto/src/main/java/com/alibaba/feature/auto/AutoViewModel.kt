@@ -10,6 +10,7 @@ import com.alibaba.core.common.OutputFormatDetector
 import com.alibaba.core.common.isGroupInCountries
 import com.alibaba.core.common.extractIptvUrls
 import com.alibaba.core.common.isAdultGroup
+import com.alibaba.domain.model.OutputDelivery
 import com.alibaba.domain.model.OutputFormat
 import com.alibaba.domain.model.Playlist
 import com.alibaba.domain.model.Channel
@@ -47,16 +48,41 @@ class AutoViewModel @Inject constructor(
     private var progressStartMs: Long? = null
     private val completedUrlDurationsMs = ArrayList<Long>(64)
 
+    init {
+        viewModelScope.launch {
+            settingsRepository.settings.collect { s ->
+                _state.update { st ->
+                    st.copy(
+                        enableCountryFiltering = s.enableCountryFiltering,
+                        outputDelivery = s.outputDelivery
+                    )
+                }
+            }
+        }
+    }
+
     fun onInputChange(value: String) {
         _state.update { it.copy(inputText = value, errorMessage = null) }
     }
 
     fun nextStep() {
-        _state.update { s -> s.copy(step = (s.step + 1).coerceAtMost(3), errorMessage = null) }
+        _state.update { s ->
+            val next = when {
+                s.step == 0 && !s.enableCountryFiltering -> 2
+                else -> (s.step + 1)
+            }.coerceAtMost(3)
+            s.copy(step = next, errorMessage = null)
+        }
     }
 
     fun prevStep() {
-        _state.update { s -> s.copy(step = (s.step - 1).coerceAtLeast(0), errorMessage = null) }
+        _state.update { s ->
+            val prev = when {
+                s.step == 2 && !s.enableCountryFiltering -> 0
+                else -> (s.step - 1)
+            }.coerceAtLeast(0)
+            s.copy(step = prev, errorMessage = null)
+        }
     }
 
     fun extract() {
@@ -134,6 +160,7 @@ class AutoViewModel @Inject constructor(
             val folderUriString = state.value.outputFolderUriString
             val autoDetectFormat = state.value.autoDetectFormat
             val chosenOutputFormat = state.value.outputFormat
+            val outputDelivery = settings.outputDelivery
 
             val mergedChannels = ArrayList<Channel>(16_384)
             var mergedEndDate: String? = null
@@ -236,39 +263,49 @@ class AutoViewModel @Inject constructor(
                         }
                         completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
                     } else {
-                        setProgress(percent = (basePercent + 6).coerceAtMost(99), step = "$header - Kaydediliyor")
-                        val format = if (autoDetectFormat) OutputFormatDetector.detect(filtered) else chosenOutputFormat
-                        val content = withContext(Dispatchers.Default) {
-                            val groups = filtered.channels.map { it.group ?: "Ungrouped" }.toSet()
-                            PlaylistTextFormatter.format(filtered, groups, format)
-                        }
-
-                        val saved = if (folderUriString.isNullOrBlank()) {
-                            outputSaver.saveToDownloads(
-                                sourceUrl = url,
-                                format = format,
-                                content = content,
-                                maybeEndDate = filtered.endDate
-                            )
-                        } else {
-                            outputSaver.saveToFolder(
-                                folderUriString = folderUriString,
-                                sourceUrl = url,
-                                format = format,
-                                content = content,
-                                maybeEndDate = filtered.endDate
-                            )
-                        }
-
-                        savedNames += saved.displayName
-                        savedUris += saved.uriString
-
-                        _state.update { s ->
-                            val items = s.extractedUrls.toMutableList()
-                            if (index in items.indices) {
-                                items[index] = items[index].copy(status = "Kaydedildi", success = true, testedStreams = totalCount)
+                        if (outputDelivery == OutputDelivery.FILE) {
+                            setProgress(percent = (basePercent + 6).coerceAtMost(99), step = "$header - Kaydediliyor")
+                            val format = if (autoDetectFormat) OutputFormatDetector.detect(filtered) else chosenOutputFormat
+                            val content = withContext(Dispatchers.Default) {
+                                val groups = filtered.channels.map { it.group ?: "Ungrouped" }.toSet()
+                                PlaylistTextFormatter.format(filtered, groups, format)
                             }
-                            s.copy(extractedUrls = items)
+
+                            val saved = if (folderUriString.isNullOrBlank()) {
+                                outputSaver.saveToDownloads(
+                                    sourceUrl = url,
+                                    format = format,
+                                    content = content,
+                                    maybeEndDate = filtered.endDate
+                                )
+                            } else {
+                                outputSaver.saveToFolder(
+                                    folderUriString = folderUriString,
+                                    sourceUrl = url,
+                                    format = format,
+                                    content = content,
+                                    maybeEndDate = filtered.endDate
+                                )
+                            }
+
+                            savedNames += saved.displayName
+                            savedUris += saved.uriString
+
+                            _state.update { s ->
+                                val items = s.extractedUrls.toMutableList()
+                                if (index in items.indices) {
+                                    items[index] = items[index].copy(status = "Kaydedildi", success = true, testedStreams = totalCount)
+                                }
+                                s.copy(extractedUrls = items)
+                            }
+                        } else {
+                            _state.update { s ->
+                                val items = s.extractedUrls.toMutableList()
+                                if (index in items.indices) {
+                                    items[index] = items[index].copy(status = "Başarılı", success = true, testedStreams = totalCount)
+                                }
+                                s.copy(extractedUrls = items)
+                            }
                         }
                         completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
                     }
@@ -285,7 +322,7 @@ class AutoViewModel @Inject constructor(
                 }
             }
 
-            if (mergeIntoSingle) {
+            if (mergeIntoSingle && outputDelivery == OutputDelivery.FILE) {
                 setProgress(percent = 95, step = "Çıktı hazırlanıyor")
                 val merged = Playlist(channels = mergedChannels, endDate = mergedEndDate)
                 val format = if (autoDetectFormat) OutputFormatDetector.detect(merged) else chosenOutputFormat
@@ -329,6 +366,11 @@ class AutoViewModel @Inject constructor(
             }
 
             val saved = savedNames.zip(savedUris).map { (n, u) -> SavedFileItem(n, u) }
+            val outputPreview = if (outputDelivery == OutputDelivery.LINKS) {
+                working.joinToString(separator = "\n")
+            } else {
+                null
+            }
 
             _state.update {
                 it.copy(
@@ -340,7 +382,9 @@ class AutoViewModel @Inject constructor(
                     workingUrls = working,
                     failingUrls = failing,
                     savedFiles = saved,
-                    lastRunSaved = true
+                    lastRunSaved = true,
+                    outputPreview = outputPreview,
+                    outputFolderUriString = if (outputDelivery == OutputDelivery.LINKS) null else it.outputFolderUriString
                 )
             }
         }

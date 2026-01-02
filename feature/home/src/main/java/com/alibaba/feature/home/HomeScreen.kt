@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -29,6 +30,7 @@ import androidx.compose.ui.unit.dp
 fun HomeScreen(
     onManualClick: () -> Unit,
     onAutoClick: () -> Unit,
+    onAnalyzeClick: () -> Unit,
     onSettingsClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -74,6 +76,15 @@ fun HomeScreen(
                 Icon(imageVector = Icons.Filled.AutoFixHigh, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(text = "Otomatik")
+            }
+
+            Button(
+                onClick = onAnalyzeClick,
+                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+            ) {
+                Icon(imageVector = Icons.Filled.Search, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = "IPTV Analiz")
             }
         }
     }

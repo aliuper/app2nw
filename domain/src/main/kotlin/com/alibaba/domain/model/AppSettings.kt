@@ -7,5 +7,6 @@ data class AppSettings(
     val delayBetweenStreamTestsMs: Long = 0L,
     val skipAdultGroups: Boolean = true,
     val shuffleCandidates: Boolean = true,
-    val enableCountryFiltering: Boolean = true
+    val enableCountryFiltering: Boolean = true,
+    val outputDelivery: OutputDelivery = OutputDelivery.FILE
 )
