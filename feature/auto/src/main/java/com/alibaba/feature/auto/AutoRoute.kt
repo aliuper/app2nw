@@ -583,7 +583,6 @@ fun AutoScreen(
 
                 else -> Unit
             }
-        }
 
             if (state.savedFiles.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(8.dp))
