@@ -45,6 +45,7 @@ dependencies {
     implementation(libs.androidx.activity.compose)
 
     implementation(project(":domain"))
+    implementation(project(":data"))
     implementation(project(":core:common"))
 
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
