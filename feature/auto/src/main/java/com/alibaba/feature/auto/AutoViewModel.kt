@@ -25,6 +25,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -244,6 +245,7 @@ class AutoViewModel @Inject constructor(
             val savedUris = ArrayList<String>(urls.size + 1)
 
             for ((index, url) in urls.withIndex()) {
+                yield() // Prevent ANR by allowing other coroutines to run
                 val urlStartMs = SystemClock.elapsedRealtime()
                 val header = "${index + 1}/${urls.size}"
                 val basePercent = ((index * 100) / maxOf(1, urls.size)).coerceIn(0, 99)
@@ -270,7 +272,7 @@ class AutoViewModel @Inject constructor(
 
                     val (ok, testedCount, totalCount) = runStreamTestDetailed(playlist) { tested, total ->
                         val now = SystemClock.elapsedRealtime()
-                        val shouldUpdate = tested >= total || (now - lastStreamUiUpdateMs) >= 250
+                        val shouldUpdate = tested >= total || (now - lastStreamUiUpdateMs) >= 500
                         if (shouldUpdate) {
                             lastStreamUiUpdateMs = now
                             _state.update { s ->
@@ -504,6 +506,7 @@ class AutoViewModel @Inject constructor(
         var tested = 0
         var okCount = 0
         for (url in sample) {
+            yield() // Prevent ANR
             tested += 1
             onTestUpdate(tested, total)
             if (streamTester.isPlayable(url, settings.streamTestTimeoutMs)) {
@@ -515,6 +518,8 @@ class AutoViewModel @Inject constructor(
 
             if (settings.delayBetweenStreamTestsMs > 0) {
                 delay(settings.delayBetweenStreamTestsMs)
+            } else {
+                delay(50) // Small delay to prevent ANR even when user sets 0
             }
         }
 
