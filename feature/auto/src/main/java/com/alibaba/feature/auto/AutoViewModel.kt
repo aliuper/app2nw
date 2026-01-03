@@ -18,7 +18,7 @@ import com.alibaba.domain.repo.PlaylistRepository
 import com.alibaba.domain.repo.SettingsRepository
 import com.alibaba.domain.service.OutputSaver
 import com.alibaba.domain.service.StreamTester
-import com.alibaba.service.StreamTestService
+import com.alibaba.data.service.StreamTestService
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers

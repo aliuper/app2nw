@@ -1,4 +1,4 @@
-package com.alibaba.service
+package com.alibaba.data.service
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -10,8 +10,6 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import com.alibaba.MainActivity
-import com.alibaba.R
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -97,7 +95,7 @@ class StreamTestService : Service() {
     }
 
     private fun createNotification(text: String, progress: Int, eta: Int?): Notification {
-        val intent = Intent(this, MainActivity::class.java).apply {
+        val intent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
         val pendingIntent = PendingIntent.getActivity(
@@ -126,7 +124,7 @@ class StreamTestService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("IPTV Test - %$progress")
             .setContentText(contentText)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(android.R.drawable.ic_media_play)
             .setProgress(100, progress, false)
             .setOngoing(true)
             .setContentIntent(pendingIntent)
@@ -136,7 +134,7 @@ class StreamTestService : Service() {
     }
 
     private fun createCompletionNotification(success: Boolean, message: String): Notification {
-        val intent = Intent(this, MainActivity::class.java).apply {
+        val intent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
         val pendingIntent = PendingIntent.getActivity(
@@ -149,7 +147,7 @@ class StreamTestService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(if (success) "Test Tamamlandı" else "Test Başarısız")
             .setContentText(message)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(if (success) android.R.drawable.ic_menu_info_details else android.R.drawable.ic_dialog_alert)
             .setColor(if (success) 0x00FF41 else 0xFF0055)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
