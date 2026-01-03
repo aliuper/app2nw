@@ -1,3 +1,4 @@
+56s
 Run gradle :app:assembleDebug
   gradle :app:assembleDebug
   shell: /usr/bin/bash -e {0}
@@ -20,31 +21,33 @@ Starting a Gradle Daemon (subsequent builds will be faster)
 > Task :app:checkKotlinGradlePluginConfigurationErrors
 > Task :data:preBuild UP-TO-DATE
 > Task :data:preDebugBuild UP-TO-DATE
+> Task :feature:analyze:preBuild UP-TO-DATE
+> Task :feature:analyze:preDebugBuild UP-TO-DATE
 > Task :feature:auto:preBuild UP-TO-DATE
 > Task :feature:auto:preDebugBuild UP-TO-DATE
+> Task :feature:auto:writeDebugAarMetadata
+> Task :data:writeDebugAarMetadata
 > Task :feature:editor:preBuild UP-TO-DATE
 > Task :feature:editor:preDebugBuild UP-TO-DATE
-> Task :data:writeDebugAarMetadata
-> Task :feature:editor:writeDebugAarMetadata
+> Task :feature:analyze:writeDebugAarMetadata
 > Task :feature:export:preBuild UP-TO-DATE
 > Task :feature:export:preDebugBuild UP-TO-DATE
-> Task :feature:auto:writeDebugAarMetadata
+> Task :feature:editor:writeDebugAarMetadata
 > Task :feature:home:preBuild UP-TO-DATE
 > Task :feature:home:preDebugBuild UP-TO-DATE
 > Task :feature:export:writeDebugAarMetadata
-> Task :feature:home:writeDebugAarMetadata
 > Task :feature:manual:preBuild UP-TO-DATE
 > Task :feature:manual:preDebugBuild UP-TO-DATE
+> Task :feature:home:writeDebugAarMetadata
 > Task :feature:manual:writeDebugAarMetadata
 > Task :app:generateDebugResValues
-> Task :domain:compileKotlin
-> Task :domain:compileJava NO-SOURCE
-> Task :domain:classes UP-TO-DATE
-> Task :app:checkDebugAarMetadata
-> Task :domain:jar
 > Task :data:generateDebugResValues
 > Task :data:generateDebugResources
+> Task :app:checkDebugAarMetadata
 > Task :data:packageDebugResources
+> Task :feature:analyze:generateDebugResValues
+> Task :feature:analyze:generateDebugResources
+> Task :feature:analyze:packageDebugResources
 > Task :feature:auto:generateDebugResValues
 > Task :feature:auto:generateDebugResources
 > Task :feature:auto:packageDebugResources
@@ -63,91 +66,178 @@ Starting a Gradle Daemon (subsequent builds will be faster)
 > Task :app:mapDebugSourceSetPaths
 > Task :app:generateDebugResources
 > Task :app:packageDebugResources
-> Task :app:createDebugCompatibleScreenManifests
 > Task :app:mergeDebugResources
+> Task :app:createDebugCompatibleScreenManifests
 > Task :app:extractDeepLinksDebug
 > Task :data:extractDeepLinksDebug
-> Task :feature:auto:extractDeepLinksDebug
+> Task :feature:analyze:extractDeepLinksDebug
 > Task :app:parseDebugLocalResources
+> Task :feature:auto:extractDeepLinksDebug
+> Task :data:processDebugManifest
+> Task :feature:analyze:processDebugManifest
+> Task :feature:auto:processDebugManifest
 > Task :feature:editor:extractDeepLinksDebug
 > Task :feature:export:extractDeepLinksDebug
-> Task :feature:export:processDebugManifest
 > Task :feature:editor:processDebugManifest
-> Task :feature:auto:processDebugManifest
-> Task :data:processDebugManifest
+> Task :feature:export:processDebugManifest
 > Task :feature:home:extractDeepLinksDebug
-> Task :feature:manual:extractDeepLinksDebug
 > Task :feature:home:processDebugManifest
+> Task :feature:manual:extractDeepLinksDebug
 > Task :feature:manual:processDebugManifest
 > Task :data:compileDebugLibraryResources
 > Task :app:processDebugMainManifest
 > Task :app:processDebugManifest
 > Task :data:parseDebugLocalResources
-> Task :feature:auto:compileDebugLibraryResources
+> Task :feature:analyze:compileDebugLibraryResources
 > Task :app:processDebugManifestForPackage
-> Task :feature:editor:compileDebugLibraryResources
-> Task :feature:auto:parseDebugLocalResources
+> Task :feature:analyze:parseDebugLocalResources
+> Task :feature:auto:compileDebugLibraryResources
 > Task :data:generateDebugRFile
-> Task :feature:editor:parseDebugLocalResources
+> Task :feature:analyze:generateDebugRFile
+> Task :feature:auto:parseDebugLocalResources
+> Task :feature:editor:compileDebugLibraryResources
 > Task :feature:export:compileDebugLibraryResources
 > Task :feature:auto:generateDebugRFile
+> Task :feature:editor:parseDebugLocalResources
 > Task :feature:export:parseDebugLocalResources
 > Task :feature:home:compileDebugLibraryResources
 > Task :feature:editor:generateDebugRFile
 > Task :feature:export:generateDebugRFile
-> Task :feature:manual:compileDebugLibraryResources
 > Task :feature:home:parseDebugLocalResources
-> Task :feature:manual:parseDebugLocalResources
-> Task :feature:home:generateDebugRFile
+> Task :feature:manual:compileDebugLibraryResources
 > Task :core:common:checkKotlinGradlePluginConfigurationErrors
-> Task :feature:manual:generateDebugRFile
+> Task :feature:home:generateDebugRFile
 > Task :core:common:processResources NO-SOURCE
 > Task :core:parser:checkKotlinGradlePluginConfigurationErrors
+> Task :feature:manual:parseDebugLocalResources
 > Task :core:parser:processResources NO-SOURCE
 > Task :core:network:checkKotlinGradlePluginConfigurationErrors
-> Task :core:parser:compileKotlin
-> Task :core:parser:compileJava NO-SOURCE
-> Task :core:parser:classes UP-TO-DATE
-> Task :core:parser:jar
+> Task :feature:manual:generateDebugRFile
 > Task :core:network:processResources NO-SOURCE
 > Task :data:checkKotlinGradlePluginConfigurationErrors
-> Task :app:processDebugResources
 > Task :data:javaPreCompileDebug
+> Task :feature:analyze:checkKotlinGradlePluginConfigurationErrors
+> Task :feature:analyze:javaPreCompileDebug
 > Task :feature:auto:checkKotlinGradlePluginConfigurationErrors
 > Task :feature:auto:javaPreCompileDebug
 > Task :feature:editor:checkKotlinGradlePluginConfigurationErrors
 > Task :feature:editor:compileDebugKotlin NO-SOURCE
 > Task :feature:editor:javaPreCompileDebug
 > Task :feature:editor:compileDebugJavaWithJavac NO-SOURCE
+> Task :feature:editor:bundleLibCompileToJarDebug
 > Task :feature:export:checkKotlinGradlePluginConfigurationErrors
 > Task :feature:export:compileDebugKotlin NO-SOURCE
-> Task :feature:editor:bundleLibCompileToJarDebug
-> Task :feature:home:checkKotlinGradlePluginConfigurationErrors
 > Task :feature:export:javaPreCompileDebug
 > Task :feature:export:compileDebugJavaWithJavac NO-SOURCE
 > Task :feature:export:bundleLibCompileToJarDebug
+> Task :feature:home:checkKotlinGradlePluginConfigurationErrors
+> Task :app:processDebugResources
+> Task :feature:home:javaPreCompileDebug
+> Task :feature:manual:checkKotlinGradlePluginConfigurationErrors
+> Task :feature:manual:javaPreCompileDebug
+> Task :app:javaPreCompileDebug
+> Task :app:mergeDebugShaders
+> Task :app:compileDebugShaders NO-SOURCE
+> Task :app:generateDebugAssets UP-TO-DATE
+> Task :data:mergeDebugShaders
+> Task :data:compileDebugShaders NO-SOURCE
+> Task :data:generateDebugAssets UP-TO-DATE
+> Task :data:packageDebugAssets
+> Task :feature:analyze:mergeDebugShaders
+> Task :feature:analyze:compileDebugShaders NO-SOURCE
+> Task :feature:analyze:generateDebugAssets UP-TO-DATE
+> Task :feature:analyze:packageDebugAssets
+> Task :feature:auto:mergeDebugShaders
+> Task :feature:auto:compileDebugShaders NO-SOURCE
+> Task :feature:auto:generateDebugAssets UP-TO-DATE
+> Task :feature:auto:packageDebugAssets
+> Task :feature:editor:mergeDebugShaders
+> Task :feature:editor:compileDebugShaders NO-SOURCE
+> Task :feature:editor:generateDebugAssets UP-TO-DATE
+> Task :feature:editor:packageDebugAssets
+> Task :feature:export:mergeDebugShaders
+> Task :feature:export:compileDebugShaders NO-SOURCE
+> Task :feature:export:generateDebugAssets UP-TO-DATE
+> Task :feature:export:packageDebugAssets
+> Task :feature:home:mergeDebugShaders
+> Task :feature:home:compileDebugShaders NO-SOURCE
+> Task :feature:home:generateDebugAssets UP-TO-DATE
+> Task :feature:home:packageDebugAssets
+> Task :feature:manual:mergeDebugShaders
+> Task :feature:manual:compileDebugShaders NO-SOURCE
+> Task :feature:manual:generateDebugAssets UP-TO-DATE
+> Task :feature:manual:packageDebugAssets
+> Task :app:mergeDebugAssets
+> Task :app:compressDebugAssets
+> Task :feature:editor:bundleLibRuntimeToJarDebug
+> Task :feature:export:bundleLibRuntimeToJarDebug
+> Task :app:desugarDebugFileDependencies
+> Task :feature:editor:processDebugJavaRes NO-SOURCE
+> Task :feature:export:processDebugJavaRes NO-SOURCE
+> Task :app:checkDebugDuplicateClasses
+> Task :app:mergeDebugStartupProfile
 > Task :core:network:compileKotlin
-> Task :core:common:compileKotlin
-> Task :core:common:compileJava NO-SOURCE
-> Task :core:common:classes UP-TO-DATE
-> Task :core:common:jar
 > Task :core:network:compileJava NO-SOURCE
 > Task :core:network:classes UP-TO-DATE
 > Task :core:network:jar
-e: file:///home/runner/work/app2nw/app2nw/feature/home/src/main/java/com/alibaba/feature/home/HomeScreen.kt:35:13 This material API is experimental and is likely to change or to be removed in the future.
-
+> Task :domain:compileKotlin
+> Task :domain:compileJava NO-SOURCE
+> Task :domain:classes UP-TO-DATE
+> Task :domain:jar
 > Task :feature:home:compileDebugKotlin
-
-> Task :feature:home:compileDebugKotlin FAILED
+> Task :feature:home:compileDebugJavaWithJavac NO-SOURCE
+> Task :core:parser:compileKotlin
+> Task :feature:home:bundleLibCompileToJarDebug
+> Task :core:parser:compileJava NO-SOURCE
+> Task :core:parser:classes UP-TO-DATE
+> Task :core:parser:jar
+> Task :feature:home:bundleLibRuntimeToJarDebug
+> Task :feature:home:processDebugJavaRes
+> Task :feature:home:bundleLibRuntimeToDirDebug
+> Task :feature:editor:bundleLibRuntimeToDirDebug
+> Task :feature:export:bundleLibRuntimeToDirDebug
+> Task :app:mergeDebugJniLibFolders
+> Task :data:mergeDebugJniLibFolders
+> Task :data:mergeDebugNativeLibs NO-SOURCE
+> Task :data:copyDebugJniLibsProjectOnly
+> Task :feature:analyze:mergeDebugJniLibFolders
+> Task :feature:analyze:mergeDebugNativeLibs NO-SOURCE
+> Task :feature:analyze:copyDebugJniLibsProjectOnly
+> Task :feature:auto:mergeDebugJniLibFolders
+> Task :feature:auto:mergeDebugNativeLibs NO-SOURCE
+> Task :feature:auto:copyDebugJniLibsProjectOnly
+> Task :feature:editor:mergeDebugJniLibFolders
+> Task :feature:editor:mergeDebugNativeLibs NO-SOURCE
+> Task :feature:editor:copyDebugJniLibsProjectOnly
+> Task :feature:export:mergeDebugJniLibFolders
+> Task :feature:export:mergeDebugNativeLibs NO-SOURCE
+> Task :feature:export:copyDebugJniLibsProjectOnly
+> Task :feature:home:mergeDebugJniLibFolders
+> Task :feature:home:mergeDebugNativeLibs NO-SOURCE
+> Task :feature:home:copyDebugJniLibsProjectOnly
+> Task :feature:manual:mergeDebugJniLibFolders
+> Task :feature:manual:mergeDebugNativeLibs NO-SOURCE
+> Task :feature:manual:copyDebugJniLibsProjectOnly
+> Task :core:common:compileKotlin
+> Task :app:validateSigningDebug
+> Task :core:common:compileJava NO-SOURCE
+> Task :core:common:classes UP-TO-DATE
+> Task :core:common:jar
+> Task :feature:analyze:kaptGenerateStubsDebugKotlin
 > Task :data:kaptGenerateStubsDebugKotlin
-> Task :feature:auto:kaptGenerateStubsDebugKotlin
-gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/__run-1766436796965.json
+e: file:///home/runner/work/app2nw/app2nw/feature/auto/src/main/java/com/alibaba/feature/auto/AutoRoute.kt:697:1 Expecting a top level declaration
+
+> Task :feature:auto:kaptGenerateStubsDebugKotlin FAILED
+
+> Task :feature:analyze:kaptDebugKotlin
+> Task :data:kaptDebugKotlin
+> Task :app:mergeExtDexDebug
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/__run-1767391599572.json
 
 FAILURE: Build failed with an exception.
-94 actionable tasks: 94 executed
 
 * What went wrong:
-Execution failed for task ':feature:home:compileDebugKotlin'.
+Execution failed for task ':feature:auto:kaptGenerateStubsDebugKotlin'.
 > A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
    > Compilation error. See log for more details
 
@@ -157,5 +247,6 @@ Execution failed for task ':feature:home:compileDebugKotlin'.
 > Run with --scan to get full insights.
 > Get more help at https://help.gradle.org.
 
-BUILD FAILED in 57s
+BUILD FAILED in 56s
+157 actionable tasks: 157 executed
 Error: Process completed with exit code 1.
