@@ -18,6 +18,7 @@ import com.alibaba.domain.repo.PlaylistRepository
 import com.alibaba.domain.repo.SettingsRepository
 import com.alibaba.domain.service.OutputSaver
 import com.alibaba.domain.service.StreamTester
+import com.alibaba.service.StreamTestService
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -45,6 +46,7 @@ class AutoViewModel @Inject constructor(
     private val _state = MutableStateFlow(AutoUiState())
     val state: StateFlow<AutoUiState> = _state
 
+    private var testService: StreamTestService? = null
     private var progressStartMs: Long? = null
     private val completedUrlDurationsMs = ArrayList<Long>(64)
     private var lastStreamUiUpdateMs: Long = 0L
@@ -201,6 +203,8 @@ class AutoViewModel @Inject constructor(
                 _state.update { it.copy(errorMessage = "En az 1 ülke seç") }
                 return@launch
             }
+
+            StreamTestService.start(appContext)
 
             progressStartMs = SystemClock.elapsedRealtime()
             completedUrlDurationsMs.clear()
@@ -459,6 +463,9 @@ class AutoViewModel @Inject constructor(
                     outputFolderUriString = if (outputDelivery == OutputDelivery.LINKS) null else it.outputFolderUriString
                 )
             }
+
+            // Stop service and show completion notification
+            StreamTestService.stop(appContext)
         }
     }
 
@@ -568,5 +575,21 @@ class AutoViewModel @Inject constructor(
                 etaSeconds = etaSeconds
             )
         }
+
+        // Update notification
+        try {
+            val intent = android.content.Intent(appContext, StreamTestService::class.java)
+            intent.putExtra("progress_step", step ?: "")
+            intent.putExtra("progress_percent", percent)
+            intent.putExtra("progress_eta", etaSeconds?.toInt() ?: -1)
+            appContext.startService(intent)
+        } catch (_: Exception) {
+            // Service might not be running
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        StreamTestService.stop(appContext)
     }
 }
