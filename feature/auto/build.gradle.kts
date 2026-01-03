@@ -53,6 +53,7 @@ dependencies {
 
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.hilt.work)
+    implementation("com.google.guava:guava:31.1-android")
     kapt(libs.androidx.hilt.compiler)
 
     implementation(libs.hilt.android)
