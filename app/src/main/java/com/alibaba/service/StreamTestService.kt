@@ -126,11 +126,12 @@ class StreamTestService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("IPTV Test - %$progress")
             .setContentText(contentText)
-            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setSmallIcon(R.mipmap.ic_launcher)
             .setProgress(100, progress, false)
             .setOngoing(true)
             .setContentIntent(pendingIntent)
             .addAction(android.R.drawable.ic_delete, "Durdur", stopPendingIntent)
+            .setColor(0x00FF41)
             .build()
     }
 
@@ -148,7 +149,8 @@ class StreamTestService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(if (success) "Test Tamamlandı" else "Test Başarısız")
             .setContentText(message)
-            .setSmallIcon(if (success) android.R.drawable.ic_menu_info_details else android.R.drawable.ic_dialog_alert)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setColor(if (success) 0x00FF41 else 0xFF0055)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .build()

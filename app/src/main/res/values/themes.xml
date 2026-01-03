@@ -1,9 +1,27 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
 
-    <style name="Theme.Alibaba" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowLightStatusBar" tools:targetApi="m">true</item>
+    <style name="Theme.Alibaba" parent="Theme.Material3.Dark.NoActionBar">
+        <!-- Cyberpunk Green/Black Theme -->
+        <item name="colorPrimary">@color/cyber_green</item>
+        <item name="colorPrimaryVariant">@color/cyber_green_dark</item>
+        <item name="colorOnPrimary">@color/cyber_black</item>
+        
+        <item name="colorSecondary">@color/cyber_accent</item>
+        <item name="colorSecondaryVariant">@color/cyber_green_light</item>
+        <item name="colorOnSecondary">@color/cyber_black</item>
+        
+        <item name="colorError">@color/cyber_error</item>
+        <item name="colorOnError">@color/cyber_black</item>
+        
+        <item name="android:colorBackground">@color/cyber_black</item>
+        <item name="colorOnBackground">@color/cyber_green</item>
+        
+        <item name="colorSurface">@color/cyber_dark_gray</item>
+        <item name="colorOnSurface">@color/cyber_green_light</item>
+        
+        <item name="android:statusBarColor">@color/cyber_black</item>
+        <item name="android:navigationBarColor">@color/cyber_black</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">false</item>
     </style>
 
 </resources>
