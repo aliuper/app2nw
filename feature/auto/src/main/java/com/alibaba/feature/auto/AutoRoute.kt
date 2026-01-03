@@ -439,22 +439,20 @@ fun AutoScreen(
                     Text(text = "Otomatik belirle (önerilen)")
                 }
 
-                OutputFormat.values().forEach { format ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(
-                            selected = state.outputFormat == format,
-                            onClick = { onFormatChange(format) },
-                            enabled = !state.autoDetectFormat
-                        )
-                        Text(text = when (format) {
-                            OutputFormat.M3U -> ".m3u"
-                            OutputFormat.M3U8 -> ".m3u8"
-                            OutputFormat.M3U8PLUS -> ".m3u8plus"
-                        })
+                    OutputFormat.values().forEach { format ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = state.outputFormat == format,
+                                onClick = { onFormatChange(format) },
+                                enabled = !state.autoDetectFormat
+                            )
+                            Text(text = when (format) {
+                                OutputFormat.M3U -> ".m3u"
+                                OutputFormat.M3U8 -> ".m3u8"
+                                OutputFormat.M3U8PLUS -> ".m3u8plus"
+                            })
+                        }
                     }
-                }
-            }
-
                 }
 
                 startStepIndex != null && stepIndex == startStepIndex -> {
@@ -573,15 +571,15 @@ fun AutoScreen(
                         }
                     }
 
-                state.mergeRenameWarning?.let { warning ->
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(text = "Gruplar yeniden adlandırıldı", style = MaterialTheme.typography.titleMedium)
-                            Text(text = warning, style = MaterialTheme.typography.bodySmall)
+                    state.mergeRenameWarning?.let { warning ->
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(text = "Gruplar yeniden adlandırıldı", style = MaterialTheme.typography.titleMedium)
+                                Text(text = warning, style = MaterialTheme.typography.bodySmall)
+                            }
                         }
                     }
                 }
-            }
 
                 else -> Unit
             }
