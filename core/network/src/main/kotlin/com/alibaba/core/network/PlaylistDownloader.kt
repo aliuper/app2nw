@@ -17,11 +17,21 @@ class PlaylistDownloader(
             val body = response.body ?: throw IllegalStateException("Empty body")
             val source = body.source()
 
-            val lines = ArrayList<String>(8192)
-            while (!source.exhausted()) {
+            // Limit initial capacity to prevent memory bloat for large playlists
+            val lines = ArrayList<String>(4096)
+            var lineCount = 0
+            val maxLines = 100_000 // Prevent extremely large playlists from consuming all memory
+            
+            while (!source.exhausted() && lineCount < maxLines) {
                 val line = source.readUtf8Line() ?: break
                 lines.add(line)
+                lineCount++
             }
+            
+            if (lineCount >= maxLines) {
+                throw IllegalStateException("Playlist too large (>100k lines)")
+            }
+            
             lines
         }
     }

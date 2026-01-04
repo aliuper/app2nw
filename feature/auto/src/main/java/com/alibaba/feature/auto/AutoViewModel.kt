@@ -239,10 +239,11 @@ class AutoViewModel @Inject constructor(
             val usedGroupNames = linkedMapOf<String, Int>()
             val renameSamples = ArrayList<String>(16)
 
-            val working = ArrayList<String>(urls.size)
-            val failing = ArrayList<String>(urls.size)
-            val savedNames = ArrayList<String>(urls.size + 1)
-            val savedUris = ArrayList<String>(urls.size + 1)
+            // Limit initial capacity to prevent memory bloat
+            val working = ArrayList<String>(minOf(urls.size, 200))
+            val failing = ArrayList<String>(minOf(urls.size, 200))
+            val savedNames = ArrayList<String>(minOf(urls.size + 1, 200))
+            val savedUris = ArrayList<String>(minOf(urls.size + 1, 200))
 
             for ((index, url) in urls.withIndex()) {
                 yield() // Prevent ANR by allowing other coroutines to run
@@ -259,7 +260,28 @@ class AutoViewModel @Inject constructor(
                 }
 
                 try {
+                    // Periodic GC hint to prevent memory buildup
+                    if ((index + 1) % 5 == 0) {
+                        @Suppress("ExplicitGarbageCollectionCall")
+                        System.gc()
+                        delay(100) // Brief pause for GC
+                    }
+                    
                     val playlist = playlistRepository.fetchPlaylist(url)
+                    
+                    // Skip extremely large playlists to prevent OOM
+                    if (playlist.channels.size > 50000) {
+                        failing += url
+                        completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
+                        _state.update { s ->
+                            val items = s.extractedUrls.toMutableList()
+                            if (index in items.indices) {
+                                items[index] = items[index].copy(status = "Playlist çok büyük (>50k)", success = false)
+                            }
+                            s.copy(extractedUrls = items)
+                        }
+                        continue
+                    }
 
                     setProgress(percent = (basePercent + 3).coerceAtMost(99), step = "$header - Stream testi")
                     _state.update { s ->
@@ -386,18 +408,37 @@ class AutoViewModel @Inject constructor(
                         }
                         completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
                     }
-                } catch (t: Throwable) {
+                } catch (e: OutOfMemoryError) {
+                    // Critical: Out of memory - force cleanup
                     failing += url
                     completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
                     _state.update { s ->
                         val items = s.extractedUrls.toMutableList()
                         if (index in items.indices) {
-                            items[index] = items[index].copy(status = t.message ?: "Hata", success = false, testedStreams = 0)
+                            items[index] = items[index].copy(status = "Bellek yetersiz - temizleniyor", success = false)
                         }
                         s.copy(extractedUrls = items)
                     }
+                    
+                    // Aggressive memory cleanup
+                    usedGroupNames.clear()
+                    renameSamples.clear()
+                    @Suppress("ExplicitGarbageCollectionCall")
+                    System.gc()
+                    delay(2000) // Wait for GC to complete
+                    continue
+                } catch (e: Exception) {
+                    failing += url
+                    completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
+                    _state.update { s ->
+                        val items = s.extractedUrls.toMutableList()
+                        if (index in items.indices) {
+                            items[index] = items[index].copy(status = "Hata: ${e.message}", success = false)
+                        }
+                        s.copy(extractedUrls = items)
+                    }
+                    continue
                 }
-            }
 
             if (mergeIntoSingle && outputDelivery == OutputDelivery.FILE) {
                 setProgress(percent = 95, step = "Çıktı hazırlanıyor")
