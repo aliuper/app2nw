@@ -439,6 +439,7 @@ class AutoViewModel @Inject constructor(
                     }
                     continue
                 }
+            }
 
             if (mergeIntoSingle && outputDelivery == OutputDelivery.FILE) {
                 setProgress(percent = 95, step = "Çıktı hazırlanıyor")
