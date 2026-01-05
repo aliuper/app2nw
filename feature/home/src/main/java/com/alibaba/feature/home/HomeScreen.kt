@@ -32,6 +32,7 @@ fun HomeScreen(
     onAutoClick: () -> Unit,
     onAnalyzeClick: () -> Unit,
     onSettingsClick: () -> Unit,
+    onSearchClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Scaffold(
@@ -85,6 +86,13 @@ fun HomeScreen(
                 Icon(imageVector = Icons.Filled.Search, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(text = "IPTV Analiz")
+            }
+
+            Button(
+                onClick = onSearchClick,
+                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+            ) {
+                Text(text = "🔍 Link Ara & Test Et")
             }
         }
     }

@@ -9,6 +9,7 @@ import com.alibaba.feature.auto.AutoRoute
 import com.alibaba.feature.analyze.AnalyzeRoute
 import com.alibaba.feature.home.HomeScreen
 import com.alibaba.feature.manual.ManualRoute
+import com.alibaba.feature.search.SearchRoute
 import com.alibaba.settings.SettingsScreen
 
 private object Routes {
@@ -17,6 +18,7 @@ private object Routes {
     const val AUTO = "auto"
     const val ANALYZE = "analyze"
     const val SETTINGS = "settings"
+    const val SEARCH = "search"
 }
 
 @Composable
@@ -33,7 +35,8 @@ fun AlibabaNavHost(modifier: Modifier = Modifier) {
                 onManualClick = { navController.navigate(Routes.MANUAL) },
                 onAutoClick = { navController.navigate(Routes.AUTO) },
                 onAnalyzeClick = { navController.navigate(Routes.ANALYZE) },
-                onSettingsClick = { navController.navigate(Routes.SETTINGS) }
+                onSettingsClick = { navController.navigate(Routes.SETTINGS) },
+                onSearchClick = { navController.navigate(Routes.SEARCH) }
             )
         }
 
@@ -51,6 +54,17 @@ fun AlibabaNavHost(modifier: Modifier = Modifier) {
 
         composable(Routes.SETTINGS) {
             SettingsScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.SEARCH) {
+            SearchRoute(
+                onNavigateBack = { navController.popBackStack() },
+                onStartAutoTest = { urls ->
+                    navController.navigate(Routes.AUTO) {
+                        // TODO: Pass URLs to Auto screen
+                    }
+                }
+            )
         }
     }
 }

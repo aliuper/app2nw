@@ -63,6 +63,7 @@ dependencies {
     implementation(project(":feature:analyze"))
     implementation(project(":feature:editor"))
     implementation(project(":feature:export"))
+    implementation(project(":feature:search"))
 
     implementation(project(":data"))
     implementation(project(":domain"))
