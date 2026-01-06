@@ -71,6 +71,10 @@ class AutoViewModel @Inject constructor(
         _state.update { it.copy(inputText = value, errorMessage = null) }
     }
 
+    fun setUrls(urls: String) {
+        _state.update { it.copy(inputText = urls, errorMessage = null) }
+    }
+
     fun nextStep() {
         val s = state.value
         if (s.loading) return
