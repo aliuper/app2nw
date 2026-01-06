@@ -11,6 +11,7 @@ data class AnalyzeUiState(
     val inputText: String = "",
     val query: String = "",
     val scope: SearchScope = SearchScope.ALL,
+    val stopOnFirstMatch: Boolean = false,
     val loading: Boolean = false,
     val progressText: String? = null,
     val reportText: String? = null,

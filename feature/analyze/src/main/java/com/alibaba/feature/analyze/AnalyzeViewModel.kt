@@ -34,6 +34,10 @@ class AnalyzeViewModel @Inject constructor(
         _state.update { it.copy(scope = scope) }
     }
 
+    fun toggleStopOnFirstMatch() {
+        _state.update { it.copy(stopOnFirstMatch = !it.stopOnFirstMatch) }
+    }
+
     fun clearAll() {
         _state.update {
             it.copy(
@@ -66,19 +70,30 @@ class AnalyzeViewModel @Inject constructor(
                 val report = withContext(Dispatchers.Default) {
                     val sb = StringBuilder()
                     sb.append("Toplam kaynak: ").append(urls.size).append('\n').append('\n')
+                    var foundCount = 0
+                    var errorCount = 0
 
                     for ((index, url) in urls.withIndex()) {
-                        _state.update { it.copy(progressText = "${index + 1}/${urls.size} indiriliyor") }
+                        _state.update { it.copy(progressText = "${index + 1}/${urls.size} kontrol ediliyor") }
 
-                        val playlist = withContext(Dispatchers.IO) {
-                            playlistRepository.fetchPlaylist(url)
-                        }
+                        try {
+                            val playlist = withContext(Dispatchers.IO) {
+                                playlistRepository.fetchPlaylist(url)
+                            }
 
-                        val matches = filterMatches(playlist.channels, query, state.value.scope)
+                            val matches = filterMatches(playlist.channels, query, state.value.scope)
 
-                        sb.append("Kaynak: ").append(url).append('\n')
-                        if (matches.isEmpty()) {
-                            sb.append("- Bulunamadı\n\n")
+                            sb.append("Kaynak ${index + 1}: ").append(url).append('\n')
+                            if (matches.isEmpty()) {
+                                sb.append("- Bulunamadı\n\n")
+                                continue
+                            }
+
+                            foundCount++
+                        } catch (e: Exception) {
+                            errorCount++
+                            sb.append("Kaynak ${index + 1}: ").append(url).append('\n')
+                            sb.append("- HATA: ").append(e.message ?: "Bağlantı hatası").append("\n\n")
                             continue
                         }
 
@@ -99,7 +114,20 @@ class AnalyzeViewModel @Inject constructor(
                             sb.append("  ... +").append(matches.size - preview.size).append(" daha\n")
                         }
                         sb.append('\n')
+
+                        // Stop on first match if enabled
+                        if (state.value.stopOnFirstMatch) {
+                            sb.append("\n⚠️ İlk eşleşmede duruldu (${urls.size - index - 1} kaynak kontrol edilmedi)\n")
+                            break
+                        }
                     }
+
+                    // Add summary
+                    sb.append("\n═══════════════════════════\n")
+                    sb.append("📊 ÖZET:\n")
+                    sb.append("✓ Başarılı: ").append(foundCount).append(" kaynak\n")
+                    sb.append("✗ Hatalı: ").append(errorCount).append(" kaynak\n")
+                    sb.append("📝 Kontrol edilen: ").append(index + 1).append("/").append(urls.size).append("\n")
 
                     sb.toString()
                 }

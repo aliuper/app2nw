@@ -18,9 +18,9 @@ class PlaylistDownloader(
             val source = body.source()
 
             // Limit initial capacity to prevent memory bloat for large playlists
-            val lines = ArrayList<String>(4096)
+            val lines = ArrayList<String>(8192)
             var lineCount = 0
-            val maxLines = 100_000 // Prevent extremely large playlists from consuming all memory
+            val maxLines = 500_000 // Allow larger playlists for analysis (500k lines)
             
             while (!source.exhausted() && lineCount < maxLines) {
                 val line = source.readUtf8Line() ?: break
@@ -28,8 +28,9 @@ class PlaylistDownloader(
                 lineCount++
             }
             
+            // Don't throw error, just truncate silently for analysis
             if (lineCount >= maxLines) {
-                throw IllegalStateException("Playlist too large (>100k lines)")
+                lines.add("#EXTINF:-1,⚠️ Playlist kesildi (>500k satır)")
             }
             
             lines

@@ -80,6 +80,7 @@ fun AnalyzeRoute(
         onInputChange = viewModel::onInputChange,
         onQueryChange = viewModel::onQueryChange,
         onScopeChange = viewModel::setScope,
+        onToggleStopOnFirstMatch = viewModel::toggleStopOnFirstMatch,
         onRun = viewModel::runSearch,
         onClear = viewModel::clearAll,
         onSaveText = { name, text ->
@@ -98,6 +99,7 @@ private fun AnalyzeScreen(
     onInputChange: (String) -> Unit,
     onQueryChange: (String) -> Unit,
     onScopeChange: (SearchScope) -> Unit,
+    onToggleStopOnFirstMatch: () -> Unit,
     onRun: () -> Unit,
     onClear: () -> Unit,
     onSaveText: (suggestedName: String, text: String) -> Unit,
@@ -174,6 +176,24 @@ private fun AnalyzeScreen(
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text(text = "Arama metni") }
             )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                androidx.compose.material3.Checkbox(
+                    checked = state.stopOnFirstMatch,
+                    onCheckedChange = { onToggleStopOnFirstMatch() },
+                    enabled = !state.loading
+                )
+                Text(
+                    text = "İlk eşleşmede dur (daha hızlı)",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
 
             Button(onClick = onRun, enabled = !state.loading) {
                 Icon(imageVector = Icons.Filled.Search, contentDescription = null)
