@@ -72,8 +72,10 @@ class AnalyzeViewModel @Inject constructor(
                     sb.append("Toplam kaynak: ").append(urls.size).append('\n').append('\n')
                     var foundCount = 0
                     var errorCount = 0
+                    var lastIndex = 0
 
                     for ((index, url) in urls.withIndex()) {
+                        lastIndex = index
                         _state.update { it.copy(progressText = "${index + 1}/${urls.size} kontrol ediliyor") }
 
                         try {
@@ -81,37 +83,37 @@ class AnalyzeViewModel @Inject constructor(
                                 playlistRepository.fetchPlaylist(url)
                             }
 
-                            val matches = filterMatches(playlist.channels, query, state.value.scope)
+                            val matchedChannels = filterMatches(playlist.channels, query, state.value.scope)
 
                             sb.append("Kaynak ${index + 1}: ").append(url).append('\n')
-                            if (matches.isEmpty()) {
+                            if (matchedChannels.isEmpty()) {
                                 sb.append("- Bulunamadı\n\n")
                                 continue
                             }
 
                             foundCount++
+
+                            // Basic season/episode extraction from name patterns like S01E02 or 1x02
+                            val seriesStats = computeSeriesStats(matchedChannels)
+
+                            sb.append("- Bulunan: ").append(matchedChannels.size).append('\n')
+                            if (seriesStats.isNotBlank()) {
+                                sb.append(seriesStats)
+                            }
+
+                            // List first N matches for copy
+                            val preview = matchedChannels.take(50)
+                            for (m in preview) {
+                                sb.append("  - ").append(m.name).append(" | ").append(m.url).append('\n')
+                            }
+                            if (matchedChannels.size > preview.size) {
+                                sb.append("  ... +").append(matchedChannels.size - preview.size).append(" daha\n")
+                            }
                         } catch (e: Exception) {
                             errorCount++
                             sb.append("Kaynak ${index + 1}: ").append(url).append('\n')
                             sb.append("- HATA: ").append(e.message ?: "Bağlantı hatası").append("\n\n")
                             continue
-                        }
-
-                        // Basic season/episode extraction from name patterns like S01E02 or 1x02
-                        val seriesStats = computeSeriesStats(matches)
-
-                        sb.append("- Bulunan: ").append(matches.size).append('\n')
-                        if (seriesStats.isNotBlank()) {
-                            sb.append(seriesStats)
-                        }
-
-                        // List first N matches for copy
-                        val preview = matches.take(50)
-                        for (m in preview) {
-                            sb.append("  - ").append(m.name).append(" | ").append(m.url).append('\n')
-                        }
-                        if (matches.size > preview.size) {
-                            sb.append("  ... +").append(matches.size - preview.size).append(" daha\n")
                         }
                         sb.append('\n')
 
@@ -127,7 +129,7 @@ class AnalyzeViewModel @Inject constructor(
                     sb.append("📊 ÖZET:\n")
                     sb.append("✓ Başarılı: ").append(foundCount).append(" kaynak\n")
                     sb.append("✗ Hatalı: ").append(errorCount).append(" kaynak\n")
-                    sb.append("📝 Kontrol edilen: ").append(index + 1).append("/").append(urls.size).append("\n")
+                    sb.append("📝 Kontrol edilen: ").append(lastIndex + 1).append("/").append(urls.size).append("\n")
 
                     sb.toString()
                 }
