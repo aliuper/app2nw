@@ -29,7 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
@@ -274,7 +274,7 @@ fun ManualScreen(
                             context.startActivity(intent)
                         }
                     ) {
-                        Icon(imageVector = Icons.Filled.OpenInNew, contentDescription = null)
+                        Icon(imageVector = Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(text = "Aç")
                     }

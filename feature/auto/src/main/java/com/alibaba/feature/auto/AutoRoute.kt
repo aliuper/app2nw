@@ -36,7 +36,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
@@ -224,7 +224,7 @@ fun AutoScreen(
             ) {
                 val canGoBack = stepIndex > 0 && !state.loading
                 Button(onClick = onPrev, enabled = canGoBack) {
-                    Icon(imageVector = Icons.Filled.ArrowBack, contentDescription = null)
+                    Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(text = "Geri")
                 }

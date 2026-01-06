@@ -75,7 +75,7 @@ fun SearchScreen(
                 title = { Text("🔍 Link Ara & Test Et") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, "Geri")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Geri")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
