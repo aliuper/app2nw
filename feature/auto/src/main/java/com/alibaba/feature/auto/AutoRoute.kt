@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -70,9 +71,16 @@ private val defaultCountries = listOf(
 @Composable
 fun AutoRoute(
     modifier: Modifier = Modifier,
+    initialUrls: String? = null,
     viewModel: AutoViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+    
+    LaunchedEffect(initialUrls) {
+        if (!initialUrls.isNullOrBlank()) {
+            viewModel.setUrls(initialUrls)
+        }
+    }
 
     val context = LocalContext.current
     val folderPicker = rememberLauncherForActivityResult(

@@ -1,6 +1,10 @@
 package com.alibaba
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -24,6 +28,7 @@ private object Routes {
 @Composable
 fun AlibabaNavHost(modifier: Modifier = Modifier) {
     val navController = rememberNavController()
+    var pendingUrls by remember { mutableStateOf<String?>(null) }
 
     NavHost(
         navController = navController,
@@ -45,7 +50,8 @@ fun AlibabaNavHost(modifier: Modifier = Modifier) {
         }
 
         composable(Routes.AUTO) {
-            AutoRoute()
+            AutoRoute(initialUrls = pendingUrls)
+            pendingUrls = null
         }
 
         composable(Routes.ANALYZE) {
@@ -60,9 +66,8 @@ fun AlibabaNavHost(modifier: Modifier = Modifier) {
             SearchRoute(
                 onNavigateBack = { navController.popBackStack() },
                 onStartAutoTest = { urls ->
-                    navController.navigate(Routes.AUTO) {
-                        // TODO: Pass URLs to Auto screen
-                    }
+                    pendingUrls = urls
+                    navController.navigate(Routes.AUTO)
                 }
             )
         }

@@ -7,15 +7,20 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import android.widget.Toast
 
 @Composable
 fun SearchRoute(
@@ -24,6 +29,8 @@ fun SearchRoute(
     viewModel: SearchViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
 
     SearchScreen(
         state = state,
@@ -34,6 +41,13 @@ fun SearchRoute(
         onToggleUrl = viewModel::toggleUrlSelection,
         onSelectAll = viewModel::selectAll,
         onDeselectAll = viewModel::deselectAll,
+        onCopyAll = {
+            val urls = viewModel.getSelectedUrlsText()
+            if (urls.isNotBlank()) {
+                clipboardManager.setText(AnnotatedString(urls))
+                Toast.makeText(context, "${state.selectedUrls.size} link kopyalandı", Toast.LENGTH_SHORT).show()
+            }
+        },
         onStartAutoTest = {
             val urls = viewModel.getSelectedUrlsText()
             onStartAutoTest(urls)
@@ -52,6 +66,7 @@ fun SearchScreen(
     onToggleUrl: (String) -> Unit,
     onSelectAll: () -> Unit,
     onDeselectAll: () -> Unit,
+    onCopyAll: () -> Unit,
     onStartAutoTest: () -> Unit
 ) {
     Scaffold(
@@ -218,24 +233,66 @@ fun SearchScreen(
                                 fontSize = MaterialTheme.typography.bodySmall.fontSize
                             )
                         }
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                // Action buttons - horizontal layout
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A1A))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onSelectAll,
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = Color(0xFF00FFFF)
+                            )
+                        ) {
+                            Text("✓ Tümünü Seç")
+                        }
                         
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TextButton(onClick = onSelectAll) {
-                                Text("Tümünü Seç", color = Color(0xFF00FFFF))
-                            }
-                            TextButton(onClick = onDeselectAll) {
-                                Text("Temizle", color = Color(0xFF00FFFF))
-                            }
-                            Button(
-                                onClick = onStartAutoTest,
-                                enabled = state.selectedUrls.isNotEmpty(),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFF00FF41),
-                                    contentColor = Color.Black
-                                )
-                            ) {
-                                Text("🚀 TEST BAŞLAT")
-                            }
+                        OutlinedButton(
+                            onClick = onDeselectAll,
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = Color(0xFF00FFFF)
+                            )
+                        ) {
+                            Text("✗ Temizle")
+                        }
+                        
+                        Button(
+                            onClick = onCopyAll,
+                            modifier = Modifier.weight(1f),
+                            enabled = state.selectedUrls.isNotEmpty(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF0066CC),
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Kopyala")
+                        }
+                        
+                        Button(
+                            onClick = onStartAutoTest,
+                            modifier = Modifier.weight(1f),
+                            enabled = state.selectedUrls.isNotEmpty(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF00FF41),
+                                contentColor = Color.Black
+                            )
+                        ) {
+                            Text("🚀 TEST")
                         }
                     }
                 }
