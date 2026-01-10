@@ -61,7 +61,6 @@ dependencies {
     implementation(project(":feature:manual"))
     implementation(project(":feature:auto"))
     implementation(project(":feature:analyze"))
-    implementation(project(":feature:editor"))
     implementation(project(":feature:export"))
     implementation(project(":feature:search"))
     implementation(project(":feature:compare"))
