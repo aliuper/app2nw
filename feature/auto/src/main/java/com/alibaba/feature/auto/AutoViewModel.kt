@@ -237,7 +237,7 @@ class AutoViewModel @Inject constructor(
             val chosenOutputFormat = state.value.outputFormat
             val outputDelivery = settings.outputDelivery
 
-            val mergedChannels = ArrayList<Channel>(16_384)
+            val mergedChannels = ArrayList<Channel>(4_096) // Reduced from 16k to prevent OOM
             var mergedEndDate: String? = null
 
             val usedGroupNames = linkedMapOf<String, Int>()
@@ -263,15 +263,16 @@ class AutoViewModel @Inject constructor(
                     s.copy(extractedUrls = items)
                 }
 
+                var playlist: Playlist? = null
                 try {
-                    // Periodic GC hint to prevent memory buildup
-                    if ((index + 1) % 5 == 0) {
+                    // More aggressive GC to prevent crashes
+                    if ((index + 1) % 3 == 0) {
                         @Suppress("ExplicitGarbageCollectionCall")
                         System.gc()
-                        delay(100) // Brief pause for GC
+                        delay(200) // Longer pause for GC to complete
                     }
                     
-                    val playlist = playlistRepository.fetchPlaylist(url)
+                    playlist = playlistRepository.fetchPlaylist(url)
 
                     setProgress(percent = (basePercent + 3).coerceAtMost(99), step = "$header - Stream testi")
                     _state.update { s ->
@@ -411,11 +412,14 @@ class AutoViewModel @Inject constructor(
                     }
                     
                     // Aggressive memory cleanup
+                    playlist = null
+                    mergedChannels.clear()
+                    mergedChannels.trimToSize()
                     usedGroupNames.clear()
                     renameSamples.clear()
                     @Suppress("ExplicitGarbageCollectionCall")
                     System.gc()
-                    delay(2000) // Wait for GC to complete
+                    delay(3000) // Longer wait for GC to complete
                     continue
                 } catch (e: Exception) {
                     failing += url
@@ -428,6 +432,9 @@ class AutoViewModel @Inject constructor(
                         s.copy(extractedUrls = items)
                     }
                     continue
+                } finally {
+                    // Always clear playlist reference after processing
+                    playlist = null
                 }
             }
 
@@ -591,18 +598,33 @@ class AutoViewModel @Inject constructor(
 
     private fun setProgress(percent: Int, step: String?) {
         val now = SystemClock.elapsedRealtime()
-        val etaSeconds = if (percent in 1..99 && completedUrlDurationsMs.isNotEmpty()) {
+        
+        // Calculate ETA based on actual measured completion times
+        val etaSeconds = if (completedUrlDurationsMs.isNotEmpty()) {
+            // Use average time per URL from completed URLs
             val avgMs = completedUrlDurationsMs.average().toLong().coerceAtLeast(1)
             val total = state.value.extractedUrls.size
-            val remaining = (total - completedUrlDurationsMs.size).coerceAtLeast(0)
-            ((avgMs * remaining) / 1000L).coerceAtMost(60 * 60)
+            val completed = completedUrlDurationsMs.size
+            val remaining = (total - completed).coerceAtLeast(0)
+            
+            if (remaining > 0) {
+                // Calculate based on actual average time per URL
+                val etaMs = avgMs * remaining
+                (etaMs / 1000L).coerceAtMost(60 * 60 * 2) // Max 2 hours
+            } else {
+                0L
+            }
         } else {
+            // Fallback: estimate based on elapsed time and progress percentage
             val start = progressStartMs
             if (start != null && percent in 1..99) {
                 val elapsedMs = (now - start).coerceAtLeast(1)
-                val remainingMs = (elapsedMs * (100 - percent)) / percent
-                (remainingMs / 1000L).coerceAtMost(60 * 60)
-            } else null
+                val estimatedTotalMs = (elapsedMs * 100) / percent.coerceAtLeast(1)
+                val remainingMs = estimatedTotalMs - elapsedMs
+                (remainingMs / 1000L).coerceIn(0, 60 * 60 * 2) // Max 2 hours
+            } else {
+                null
+            }
         }
 
         _state.update {
