@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -26,6 +27,7 @@ class StreamTestService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private lateinit var notificationManager: NotificationManager
+    private var wakeLock: PowerManager.WakeLock? = null
 
     private val _progress = MutableStateFlow<TestProgress?>(null)
     val progress: StateFlow<TestProgress?> = _progress.asStateFlow()
@@ -34,6 +36,15 @@ class StreamTestService : Service() {
         super.onCreate()
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         createNotificationChannel()
+        
+        // Acquire wake lock to prevent CPU sleep during testing
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "Alibaba::StreamTestWakeLock"
+        ).apply {
+            acquire(60 * 60 * 1000L) // 1 hour max
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -57,12 +68,18 @@ class StreamTestService : Service() {
                 }
             }
         }
-        return START_NOT_STICKY
+        return START_STICKY // Restart service if killed by system
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        wakeLock?.let {
+            if (it.isHeld) {
+                it.release()
+            }
+        }
+        wakeLock = null
         serviceScope.cancel()
         super.onDestroy()
     }

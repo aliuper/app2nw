@@ -2,6 +2,9 @@ package com.alibaba.feature.auto
 
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -83,6 +86,16 @@ fun AutoRoute(
     }
 
     val context = LocalContext.current
+    
+    // Battery optimization exemption launcher
+    var showBatteryDialog by remember { mutableStateOf(false) }
+    val batteryOptimizationLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        // After user returns from settings, start the test
+        viewModel.run()
+    }
+    
     val folderPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree(),
         onResult = { uri ->
@@ -132,7 +145,32 @@ fun AutoRoute(
         onFormatChange = viewModel::setOutputFormat,
         onPrev = viewModel::prevStep,
         onNext = viewModel::nextStep,
-        onRun = viewModel::run,
+        onRun = {
+            // Check battery optimization before starting test
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+                val isIgnoringBatteryOptimizations = powerManager.isIgnoringBatteryOptimizations(context.packageName)
+                
+                if (!isIgnoringBatteryOptimizations) {
+                    showBatteryDialog = true
+                } else {
+                    viewModel.run()
+                }
+            } else {
+                viewModel.run()
+            }
+        },
+        showBatteryDialog = showBatteryDialog,
+        onDismissBatteryDialog = { showBatteryDialog = false },
+        onRequestBatteryExemption = {
+            showBatteryDialog = false
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                }
+                batteryOptimizationLauncher.launch(intent)
+            }
+        },
         onPickFolder = { folderPicker.launch(null) },
         onSaveText = { suggestedName, text ->
             pendingSaveName = suggestedName
@@ -158,6 +196,9 @@ fun AutoScreen(
     onPrev: () -> Unit,
     onNext: () -> Unit,
     onRun: () -> Unit,
+    showBatteryDialog: Boolean,
+    onDismissBatteryDialog: () -> Unit,
+    onRequestBatteryExemption: () -> Unit,
     onPickFolder: () -> Unit,
     onSaveText: (suggestedName: String, text: String) -> Unit,
     modifier: Modifier = Modifier
@@ -660,6 +701,34 @@ fun AutoScreen(
                         Text(text = report, style = MaterialTheme.typography.bodySmall)
                     }
                 }
+            }
+
+            // Battery optimization dialog
+            if (showBatteryDialog) {
+                androidx.compose.material3.AlertDialog(
+                    onDismissRequest = onDismissBatteryDialog,
+                    title = { Text(text = "Arka Plan İzni Gerekli") },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(text = "Otomatik test uzun sürebilir ve arka planda çalışması gerekir.")
+                            Text(text = "Uygulamanın arka planda sorunsuz çalışması için batarya optimizasyonundan muaf tutulması gerekiyor.")
+                            Text(text = "Lütfen açılacak ayarlar sayfasında 'İzin Ver' seçeneğini seçin.", style = MaterialTheme.typography.bodySmall)
+                        }
+                    },
+                    confirmButton = {
+                        Button(onClick = onRequestBatteryExemption) {
+                            Text(text = "Ayarlara Git")
+                        }
+                    },
+                    dismissButton = {
+                        Button(onClick = {
+                            onDismissBatteryDialog()
+                            Toast.makeText(context, "İzin verilmeden test başlatıldı - arka planda durabilir", Toast.LENGTH_LONG).show()
+                        }) {
+                            Text(text = "Şimdi Değil")
+                        }
+                    }
+                )
             }
 
             state.outputPreview?.let { preview ->
