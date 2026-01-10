@@ -17,20 +17,18 @@ class PlaylistDownloader(
             val body = response.body ?: throw IllegalStateException("Empty body")
             val source = body.source()
 
-            // Limit initial capacity to prevent memory bloat for large playlists
-            val lines = ArrayList<String>(8192)
-            var lineCount = 0
-            val maxLines = 500_000 // Allow larger playlists for analysis (500k lines)
+            // Read playlist line by line with reasonable chunk size
+            val lines = ArrayList<String>(4096)
             
-            while (!source.exhausted() && lineCount < maxLines) {
+            // No hard limit - read entire playlist but with memory-efficient approach
+            while (!source.exhausted()) {
                 val line = source.readUtf8Line() ?: break
                 lines.add(line)
-                lineCount++
-            }
-            
-            // Don't throw error, just truncate silently for analysis
-            if (lineCount >= maxLines) {
-                lines.add("#EXTINF:-1,⚠️ Playlist kesildi (>500k satır)")
+                
+                // Yield periodically to prevent blocking for very large files
+                if (lines.size % 10000 == 0) {
+                    kotlinx.coroutines.yield()
+                }
             }
             
             lines

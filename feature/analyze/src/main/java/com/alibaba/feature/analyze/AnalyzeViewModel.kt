@@ -7,6 +7,7 @@ import com.alibaba.domain.model.Channel
 import com.alibaba.domain.repo.PlaylistRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -78,8 +79,9 @@ class AnalyzeViewModel @Inject constructor(
                         lastIndex = index
                         _state.update { it.copy(progressText = "${index + 1}/${urls.size} kontrol ediliyor") }
 
+                        var playlist: com.alibaba.domain.model.Playlist? = null
                         try {
-                            val playlist = withContext(Dispatchers.IO) {
+                            playlist = withContext(Dispatchers.IO) {
                                 playlistRepository.fetchPlaylist(url)
                             }
 
@@ -113,7 +115,15 @@ class AnalyzeViewModel @Inject constructor(
                             errorCount++
                             sb.append("Kaynak ${index + 1}: ").append(url).append('\n')
                             sb.append("- HATA: ").append(e.message ?: "Bağlantı hatası").append("\n\n")
-                            continue
+                        } finally {
+                            // Clear playlist reference to allow garbage collection
+                            playlist = null
+                            
+                            // Suggest GC every 10 playlists to prevent memory buildup
+                            if (index % 10 == 9) {
+                                System.gc()
+                                kotlinx.coroutines.delay(50) // Brief pause to allow GC
+                            }
                         }
                         sb.append('\n')
 
