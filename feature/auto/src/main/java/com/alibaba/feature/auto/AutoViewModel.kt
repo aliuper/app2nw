@@ -272,20 +272,6 @@ class AutoViewModel @Inject constructor(
                     }
                     
                     val playlist = playlistRepository.fetchPlaylist(url)
-                    
-                    // Skip extremely large playlists to prevent OOM
-                    if (playlist.channels.size > 50000) {
-                        failing += url
-                        completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
-                        _state.update { s ->
-                            val items = s.extractedUrls.toMutableList()
-                            if (index in items.indices) {
-                                items[index] = items[index].copy(status = "Playlist çok büyük (>50k)", success = false)
-                            }
-                            s.copy(extractedUrls = items)
-                        }
-                        continue
-                    }
 
                     setProgress(percent = (basePercent + 3).coerceAtMost(99), step = "$header - Stream testi")
                     _state.update { s ->
