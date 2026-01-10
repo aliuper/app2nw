@@ -17,6 +17,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoFixHigh
+import androidx.compose.material.icons.filled.Compare
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -33,6 +34,7 @@ fun HomeScreen(
     onAnalyzeClick: () -> Unit,
     onSettingsClick: () -> Unit,
     onSearchClick: () -> Unit = {},
+    onCompareClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Scaffold(
@@ -93,6 +95,15 @@ fun HomeScreen(
                 contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
             ) {
                 Text(text = "🔍 Link Ara & Test Et")
+            }
+
+            Button(
+                onClick = onCompareClick,
+                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+            ) {
+                Icon(imageVector = Icons.Filled.Compare, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = "IPTV Karşılaştır")
             }
         }
     }

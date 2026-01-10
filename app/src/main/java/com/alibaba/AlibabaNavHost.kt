@@ -11,6 +11,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.alibaba.feature.auto.AutoRoute
 import com.alibaba.feature.analyze.AnalyzeRoute
+import com.alibaba.feature.compare.CompareRoute
 import com.alibaba.feature.home.HomeScreen
 import com.alibaba.feature.manual.ManualRoute
 import com.alibaba.feature.search.SearchRoute
@@ -23,6 +24,7 @@ private object Routes {
     const val ANALYZE = "analyze"
     const val SETTINGS = "settings"
     const val SEARCH = "search"
+    const val COMPARE = "compare"
 }
 
 @Composable
@@ -41,7 +43,8 @@ fun AlibabaNavHost(modifier: Modifier = Modifier) {
                 onAutoClick = { navController.navigate(Routes.AUTO) },
                 onAnalyzeClick = { navController.navigate(Routes.ANALYZE) },
                 onSettingsClick = { navController.navigate(Routes.SETTINGS) },
-                onSearchClick = { navController.navigate(Routes.SEARCH) }
+                onSearchClick = { navController.navigate(Routes.SEARCH) },
+                onCompareClick = { navController.navigate(Routes.COMPARE) }
             )
         }
 
@@ -69,6 +72,12 @@ fun AlibabaNavHost(modifier: Modifier = Modifier) {
                     pendingUrls = urls
                     navController.navigate(Routes.AUTO)
                 }
+            )
+        }
+
+        composable(Routes.COMPARE) {
+            CompareRoute(
+                onNavigateBack = { navController.popBackStack() }
             )
         }
     }

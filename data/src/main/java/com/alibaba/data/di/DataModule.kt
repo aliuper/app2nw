@@ -9,11 +9,13 @@ import com.alibaba.data.repo.URLScanRepositoryImpl
 import com.alibaba.data.service.DownloadsOutputSaver
 import com.alibaba.data.service.Media3StreamTester
 import com.alibaba.data.service.OkHttpIptvAnalyzer
+import com.alibaba.data.service.QualityTesterImpl
 import com.alibaba.domain.repo.PlaylistRepository
 import com.alibaba.domain.repo.SettingsRepository
 import com.alibaba.domain.repo.URLScanRepository
 import com.alibaba.domain.service.IptvAnalyzer
 import com.alibaba.domain.service.OutputSaver
+import com.alibaba.domain.service.QualityTester
 import com.alibaba.domain.service.StreamTester
 import dagger.Binds
 import dagger.Module
@@ -43,6 +45,9 @@ abstract class DataBindModule {
 
     @Binds
     abstract fun bindURLScanRepository(impl: URLScanRepositoryImpl): URLScanRepository
+
+    @Binds
+    abstract fun bindQualityTester(impl: QualityTesterImpl): QualityTester
 }
 
 @Module
