@@ -80,9 +80,8 @@ class AnalyzeViewModel @Inject constructor(
                         lastIndex = index
                         _state.update { it.copy(progressText = "${index + 1}/${urls.size} kontrol ediliyor") }
 
-                        var playlist: com.alibaba.domain.model.Playlist? = null
                         try {
-                            playlist = withContext(Dispatchers.IO) {
+                            val playlist = withContext(Dispatchers.IO) {
                                 playlistRepository.fetchPlaylist(url)
                             }
 
@@ -122,15 +121,12 @@ class AnalyzeViewModel @Inject constructor(
                         } catch (e: Exception) {
                             errorCount++
                             // Don't show errors in main results, only in summary
-                        } finally {
-                            // Clear playlist reference to allow garbage collection
-                            playlist = null
-                            
-                            // Suggest GC every 10 playlists to prevent memory buildup
-                            if (index % 10 == 9) {
-                                System.gc()
-                                kotlinx.coroutines.delay(50) // Brief pause to allow GC
-                            }
+                        }
+                        
+                        // Suggest GC every 10 playlists to prevent memory buildup
+                        if (index % 10 == 9) {
+                            System.gc()
+                            kotlinx.coroutines.delay(50) // Brief pause to allow GC
                         }
                         // Stop on first match if enabled
                         if (state.value.stopOnFirstMatch && foundCount > 0) {

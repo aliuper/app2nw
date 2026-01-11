@@ -119,10 +119,11 @@ class QualityTesterImpl @Inject constructor(
                             val buffer = ByteArray(8192)
                             val inputStream = body.byteStream()
                             var totalBytes = 0L
-                            var readBytes: Int
                             
-                            while (totalBytes < 131072 && inputStream.read(buffer).also { readBytes = it } != -1) { // Read up to 128KB
+                            var readBytes = inputStream.read(buffer)
+                            while (totalBytes < 131072 && readBytes != -1) { // Read up to 128KB
                                 totalBytes += readBytes
+                                readBytes = inputStream.read(buffer)
                             }
                             
                             downloadTime = System.currentTimeMillis() - dataStartTime
