@@ -70,69 +70,119 @@ class QualityTesterImpl @Inject constructor(
 
     private suspend fun testChannel(url: String): ChannelTestResult = withContext(Dispatchers.IO) {
         try {
-            val startTime = System.currentTimeMillis()
-            
-            val request = Request.Builder()
+            // Test 1: Initial connection speed (HEAD request)
+            val headStartTime = System.currentTimeMillis()
+            val headRequest = Request.Builder()
                 .url(url)
-                .head() // Use HEAD request for faster response
+                .head()
                 .build()
 
-            val response = withTimeoutOrNull(10_000) {
-                okHttpClient.newCall(request).execute()
+            val headResponse = withTimeoutOrNull(8_000) {
+                okHttpClient.newCall(headRequest).execute()
             }
 
-            if (response == null) {
+            if (headResponse == null || !headResponse.isSuccessful) {
                 return@withContext ChannelTestResult(
                     success = false,
-                    openingSpeed = 10_000,
-                    loadingSpeed = 10_000,
+                    openingSpeed = 8_000,
+                    loadingSpeed = 8_000,
                     hasBuffering = true,
                     bitrate = 0,
-                    responseTime = 10_000
+                    responseTime = 8_000
                 )
             }
 
-            response.use {
-                val responseTime = System.currentTimeMillis() - startTime
-                val isSuccess = it.isSuccessful
+            val headResponseTime = System.currentTimeMillis() - headStartTime
+            headResponse.close()
 
-                if (!isSuccess) {
-                    return@withContext ChannelTestResult(
-                        success = false,
-                        openingSpeed = responseTime,
-                        loadingSpeed = responseTime,
-                        hasBuffering = true,
-                        bitrate = 0,
-                        responseTime = responseTime
-                    )
-                }
+            // Test 2: Download actual data to measure real bitrate (first 512KB)
+            val dataStartTime = System.currentTimeMillis()
+            val dataRequest = Request.Builder()
+                .url(url)
+                .header("Range", "bytes=0-524287") // Request first 512KB
+                .build()
 
-                // Estimate bitrate from content-length header
-                val contentLength = it.header("Content-Length")?.toLongOrNull() ?: 0L
-                val estimatedBitrate = if (contentLength > 0 && responseTime > 0) {
-                    (contentLength * 8 * 1000) / responseTime // bits per second
-                } else {
-                    1_500_000L // Default 1.5 Mbps if unknown
-                }
+            var actualBitrate = 0L
+            var downloadTime = 0L
+            var dataSuccess = false
 
-                // Opening speed = response time for HEAD request
-                val openingSpeed = responseTime
-                
-                // Loading speed = same as opening for HEAD request
-                val loadingSpeed = responseTime
-
-                // Estimate buffering based on response time
-                val hasBuffering = responseTime > 3000
-
-                ChannelTestResult(
-                    success = true,
-                    openingSpeed = openingSpeed,
-                    loadingSpeed = loadingSpeed,
-                    hasBuffering = hasBuffering,
-                    bitrate = estimatedBitrate,
-                    responseTime = responseTime
-                )
+            val dataResponse = withTimeoutOrNull(10_000) {
+                okHttpClient.newCall(dataRequest).execute()
             }
+
+            if (dataResponse != null && (dataResponse.isSuccessful || dataResponse.code == 206)) {
+                dataResponse.use {
+                    val body = it.body
+                    if (body != null) {
+                        try {
+                            // Read data to measure actual download speed
+                            val buffer = ByteArray(8192)
+                            val inputStream = body.byteStream()
+                            var totalBytes = 0L
+                            var readBytes: Int
+                            
+                            while (totalBytes < 131072 && inputStream.read(buffer).also { readBytes = it } != -1) { // Read up to 128KB
+                                totalBytes += readBytes
+                            }
+                            
+                            downloadTime = System.currentTimeMillis() - dataStartTime
+                            if (downloadTime > 0 && totalBytes > 0) {
+                                // Calculate actual bitrate from downloaded data
+                                actualBitrate = (totalBytes * 8 * 1000) / downloadTime
+                                dataSuccess = true
+                            }
+                        } catch (e: Exception) {
+                            // Download test failed, use fallback
+                        }
+                    }
+                }
+            }
+
+            // Test 3: Connection stability - try second connection
+            val stabilityStartTime = System.currentTimeMillis()
+            val stabilityRequest = Request.Builder()
+                .url(url)
+                .head()
+                .build()
+
+            val stabilityResponse = withTimeoutOrNull(5_000) {
+                okHttpClient.newCall(stabilityRequest).execute()
+            }
+
+            val stabilityTime = System.currentTimeMillis() - stabilityStartTime
+            val isStable = stabilityResponse?.isSuccessful == true
+            stabilityResponse?.close()
+
+            // Calculate metrics
+            val openingSpeed = headResponseTime
+            val loadingSpeed = if (dataSuccess) downloadTime else headResponseTime
+            
+            // Buffering detection: unstable connection or slow response
+            val hasBuffering = !isStable || headResponseTime > 3000 || stabilityTime > 3000
+            
+            // Use actual bitrate if available, otherwise estimate
+            val finalBitrate = if (dataSuccess && actualBitrate > 0) {
+                actualBitrate
+            } else {
+                // Fallback estimation based on response time
+                when {
+                    headResponseTime < 500 -> 5_000_000L  // Fast = assume HD
+                    headResponseTime < 1500 -> 3_000_000L // Medium = assume SD+
+                    headResponseTime < 3000 -> 1_500_000L // Slow = assume SD
+                    else -> 500_000L // Very slow = low quality
+                }
+            }
+
+            val avgResponseTime = (headResponseTime + stabilityTime) / 2
+
+            ChannelTestResult(
+                success = true,
+                openingSpeed = openingSpeed,
+                loadingSpeed = loadingSpeed,
+                hasBuffering = hasBuffering,
+                bitrate = finalBitrate,
+                responseTime = avgResponseTime
+            )
         } catch (e: Exception) {
             ChannelTestResult(
                 success = false,

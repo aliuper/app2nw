@@ -74,6 +74,7 @@ class AnalyzeViewModel @Inject constructor(
                     var foundCount = 0
                     var errorCount = 0
                     var lastIndex = 0
+                    val successfulResults = mutableListOf<String>()
 
                     for ((index, url) in urls.withIndex()) {
                         lastIndex = index
@@ -87,34 +88,40 @@ class AnalyzeViewModel @Inject constructor(
 
                             val matchedChannels = filterMatches(playlist.channels, query, state.value.scope)
 
-                            sb.append("Kaynak ${index + 1}: ").append(url).append('\n')
                             if (matchedChannels.isEmpty()) {
-                                sb.append("- Bulunamadı\n\n")
-                                continue
+                                continue  // Skip sources with no matches
                             }
 
                             foundCount++
+                            val resultBuilder = StringBuilder()
+                            resultBuilder.append("✅ Kaynak ${foundCount}: ").append(url).append('\n')
+                            
+                            // Add expiry date if available
+                            if (!playlist.endDate.isNullOrBlank()) {
+                                resultBuilder.append("📅 Bitiş Tarihi: ").append(playlist.endDate).append('\n')
+                            }
 
                             // Basic season/episode extraction from name patterns like S01E02 or 1x02
                             val seriesStats = computeSeriesStats(matchedChannels)
 
-                            sb.append("- Bulunan: ").append(matchedChannels.size).append('\n')
+                            resultBuilder.append("🎬 Bulunan: ").append(matchedChannels.size).append(" kanal\n")
                             if (seriesStats.isNotBlank()) {
-                                sb.append(seriesStats)
+                                resultBuilder.append(seriesStats)
                             }
 
                             // List first N matches for copy
                             val preview = matchedChannels.take(50)
                             for (m in preview) {
-                                sb.append("  - ").append(m.name).append(" | ").append(m.url).append('\n')
+                                resultBuilder.append("  • ").append(m.name).append(" | ").append(m.url).append('\n')
                             }
                             if (matchedChannels.size > preview.size) {
-                                sb.append("  ... +").append(matchedChannels.size - preview.size).append(" daha\n")
+                                resultBuilder.append("  ... +").append(matchedChannels.size - preview.size).append(" daha\n")
                             }
+                            resultBuilder.append('\n')
+                            successfulResults.add(resultBuilder.toString())
                         } catch (e: Exception) {
                             errorCount++
-                            sb.append("Kaynak ${index + 1}: ").append(url).append('\n')
-                            sb.append("- HATA: ").append(e.message ?: "Bağlantı hatası").append("\n\n")
+                            // Don't show errors in main results, only in summary
                         } finally {
                             // Clear playlist reference to allow garbage collection
                             playlist = null
@@ -125,21 +132,34 @@ class AnalyzeViewModel @Inject constructor(
                                 kotlinx.coroutines.delay(50) // Brief pause to allow GC
                             }
                         }
-                        sb.append('\n')
-
                         // Stop on first match if enabled
-                        if (state.value.stopOnFirstMatch) {
-                            sb.append("\n⚠️ İlk eşleşmede duruldu (${urls.size - index - 1} kaynak kontrol edilmedi)\n")
+                        if (state.value.stopOnFirstMatch && foundCount > 0) {
                             break
                         }
+                    }
+
+                    // Build final report with only successful results
+                    if (successfulResults.isNotEmpty()) {
+                        sb.append("═══════════════════════════\n")
+                        sb.append("🎯 BULUNAN KAYNAKLAR (${foundCount})\n")
+                        sb.append("═══════════════════════════\n\n")
+                        for (result in successfulResults) {
+                            sb.append(result)
+                        }
+                    } else {
+                        sb.append("❌ Hiçbir kaynakta eşleşme bulunamadı\n\n")
                     }
 
                     // Add summary
                     sb.append("\n═══════════════════════════\n")
                     sb.append("📊 ÖZET:\n")
-                    sb.append("✓ Başarılı: ").append(foundCount).append(" kaynak\n")
-                    sb.append("✗ Hatalı: ").append(errorCount).append(" kaynak\n")
-                    sb.append("📝 Kontrol edilen: ").append(lastIndex + 1).append("/").append(urls.size).append("\n")
+                    sb.append("✅ Eşleşme bulunan: ").append(foundCount).append(" kaynak\n")
+                    sb.append("❌ Eşleşme bulunmayan: ").append(lastIndex + 1 - foundCount - errorCount).append(" kaynak\n")
+                    sb.append("⚠️ Hatalı: ").append(errorCount).append(" kaynak\n")
+                    sb.append("📝 Toplam kontrol edilen: ").append(lastIndex + 1).append("/").append(urls.size).append("\n")
+                    if (state.value.stopOnFirstMatch && foundCount > 0) {
+                        sb.append("⏹️ İlk eşleşmede duruldu\n")
+                    }
 
                     sb.toString()
                 }
