@@ -64,6 +64,7 @@ dependencies {
     implementation(project(":feature:export"))
     implementation(project(":feature:search"))
     implementation(project(":feature:compare"))
+    implementation(project(":feature:panelscan"))
 
     implementation(project(":data"))
     implementation(project(":domain"))

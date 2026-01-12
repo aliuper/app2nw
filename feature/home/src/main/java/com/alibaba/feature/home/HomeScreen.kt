@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Compare
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Scanner
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
@@ -35,6 +36,7 @@ fun HomeScreen(
     onSettingsClick: () -> Unit,
     onSearchClick: () -> Unit = {},
     onCompareClick: () -> Unit = {},
+    onPanelScanClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Scaffold(
@@ -104,6 +106,15 @@ fun HomeScreen(
                 Icon(imageVector = Icons.Filled.Compare, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(text = "IPTV Karşılaştır")
+            }
+
+            Button(
+                onClick = onPanelScanClick,
+                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+            ) {
+                Icon(imageVector = Icons.Filled.Scanner, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = "Panel Tarayıcı")
             }
         }
     }
