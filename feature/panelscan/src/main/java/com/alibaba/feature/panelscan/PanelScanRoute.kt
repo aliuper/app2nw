@@ -1,5 +1,8 @@
 package com.alibaba.feature.panelscan
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -10,6 +13,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -24,6 +28,24 @@ fun PanelScanRoute(
     viewModel: PanelScanViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+    val context = LocalContext.current
+
+    // File picker for combo files
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            try {
+                val inputStream = context.contentResolver.openInputStream(it)
+                val content = inputStream?.bufferedReader()?.use { reader -> reader.readText() }
+                content?.let { text ->
+                    viewModel.setComboText(text)
+                }
+            } catch (e: Exception) {
+                // Handle error
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -73,6 +95,31 @@ fun PanelScanRoute(
                 }
             }
 
+            // File Picker Button
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = { filePickerLauncher.launch("text/*") },
+                    modifier = Modifier.weight(1f),
+                    enabled = !state.scanning
+                ) {
+                    Icon(Icons.Default.FolderOpen, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Combo Dosyası Seç")
+                }
+                
+                if (state.comboText.isNotEmpty()) {
+                    OutlinedButton(
+                        onClick = { viewModel.setComboText("") },
+                        enabled = !state.scanning
+                    ) {
+                        Icon(Icons.Default.Clear, null)
+                    }
+                }
+            }
+
             // Combo Input
             OutlinedTextField(
                 value = state.comboText,
@@ -80,12 +127,18 @@ fun PanelScanRoute(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(200.dp),
-                label = { Text("Combo Listesi") },
+                label = { Text("Combo Listesi (veya yukarıdan dosya seçin)") },
                 placeholder = { 
-                    Text("kullanici1:sifre1\nkullanici2:sifre2\n...") 
+                    Text("kullanici1:sifre1\nkullanici2:sifre2\n...\n\nveya 'Combo Dosyası Seç' butonuna tıklayın") 
                 },
                 enabled = !state.scanning,
-                maxLines = 10
+                maxLines = 10,
+                supportingText = {
+                    if (state.comboText.isNotEmpty()) {
+                        val lineCount = state.comboText.lines().count { it.isNotBlank() }
+                        Text("$lineCount satır yüklendi")
+                    }
+                }
             )
 
             // Panel Selection
