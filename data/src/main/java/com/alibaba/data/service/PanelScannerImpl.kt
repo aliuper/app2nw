@@ -118,7 +118,7 @@ class PanelScannerImpl @Inject constructor(
                                     activeCons = userInfo.optInt("active_cons", 0),
                                     maxConnections = userInfo.optInt("max_connections", 1),
                                     isTrial = userInfo.optInt("is_trial", 0) == 1,
-                                    createdAt = userInfo.optString("created_at", null)
+                                    createdAt = if (userInfo.has("created_at")) userInfo.getString("created_at") else null
                                 )
                                 
                                 // Parse server info
@@ -127,10 +127,10 @@ class PanelScannerImpl @Inject constructor(
                                     ServerInfo(
                                         url = serverInfo.optString("url", ""),
                                         port = serverInfo.optString("port", ""),
-                                        httpsPort = serverInfo.optString("https_port", null),
-                                        serverProtocol = serverInfo.optString("server_protocol", null),
-                                        rtmpPort = serverInfo.optString("rtmp_port", null),
-                                        timezone = serverInfo.optString("timezone", null)
+                                        httpsPort = if (serverInfo.has("https_port")) serverInfo.getString("https_port") else null,
+                                        serverProtocol = if (serverInfo.has("server_protocol")) serverInfo.getString("server_protocol") else null,
+                                        rtmpPort = if (serverInfo.has("rtmp_port")) serverInfo.getString("rtmp_port") else null,
+                                        timezone = if (serverInfo.has("timezone")) serverInfo.getString("timezone") else null
                                     )
                                 } else {
                                     null

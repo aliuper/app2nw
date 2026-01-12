@@ -137,7 +137,7 @@ fun PanelScanRoute(
             }
 
             // Progress
-            if (state.progress != null) {
+            state.progress?.let { progress ->
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
@@ -149,19 +149,19 @@ fun PanelScanRoute(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "İlerleme: ${state.progress.current}/${state.progress.total}",
+                            text = "İlerleme: ${progress.current}/${progress.total}",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold
                         )
 
                         LinearProgressIndicator(
-                            progress = state.progress.current.toFloat() / state.progress.total.toFloat(),
+                            progress = progress.current.toFloat() / progress.total.toFloat(),
                             modifier = Modifier.fillMaxWidth()
                         )
 
-                        if (state.scanning && state.progress.currentAccount.isNotEmpty()) {
+                        if (state.scanning && progress.currentAccount.isNotEmpty()) {
                             Text(
-                                text = "Test ediliyor: ${state.progress.currentAccount}",
+                                text = "Test ediliyor: ${progress.currentAccount}",
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
@@ -171,16 +171,16 @@ fun PanelScanRoute(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "✅ Geçerli: ${state.progress.validCount}",
+                                text = "✅ Geçerli: ${progress.validCount}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.primary
                             )
                             Text(
-                                text = "❌ Geçersiz: ${state.progress.invalidCount}",
+                                text = "❌ Geçersiz: ${progress.invalidCount}",
                                 style = MaterialTheme.typography.bodySmall
                             )
                             Text(
-                                text = "⚠️ Hata: ${state.progress.errorCount}",
+                                text = "⚠️ Hata: ${progress.errorCount}",
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
