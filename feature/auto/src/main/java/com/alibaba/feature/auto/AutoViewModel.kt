@@ -263,7 +263,7 @@ class AutoViewModel @Inject constructor(
                     s.copy(extractedUrls = items)
                 }
 
-                var playlist: Playlist? = null
+                val playlist: Playlist?
                 try {
                     // More aggressive GC to prevent crashes
                     if ((index + 1) % 3 == 0) {
@@ -412,7 +412,6 @@ class AutoViewModel @Inject constructor(
                     }
                     
                     // Aggressive memory cleanup
-                    playlist = null
                     mergedChannels.clear()
                     mergedChannels.trimToSize()
                     usedGroupNames.clear()
@@ -432,9 +431,6 @@ class AutoViewModel @Inject constructor(
                         s.copy(extractedUrls = items)
                     }
                     continue
-                } finally {
-                    // Always clear playlist reference after processing
-                    playlist = null
                 }
             }
 

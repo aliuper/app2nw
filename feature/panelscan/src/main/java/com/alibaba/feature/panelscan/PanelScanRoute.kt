@@ -272,7 +272,7 @@ private fun ResultCard(result: com.alibaba.domain.model.PanelScanResult) {
                 )
             }
 
-            Divider()
+            HorizontalDivider()
 
             // Account Info
             InfoRow("👤 Kullanıcı", result.account.username)
@@ -281,7 +281,7 @@ private fun ResultCard(result: com.alibaba.domain.model.PanelScanResult) {
 
             // User Info
             result.userInfo?.let { userInfo ->
-                Divider()
+                HorizontalDivider()
                 InfoRow("📅 Bitiş", userInfo.expDate ?: "Sınırsız")
                 InfoRow("👥 Bağlantı", "${userInfo.activeCons}/${userInfo.maxConnections}")
                 InfoRow("📊 Durum", userInfo.status)
@@ -291,7 +291,7 @@ private fun ResultCard(result: com.alibaba.domain.model.PanelScanResult) {
             }
 
             // URLs
-            Divider()
+            HorizontalDivider()
             val m3uUrl = "http://${result.panel.fullAddress}/get.php?username=${result.account.username}&password=${result.account.password}&type=m3u_plus"
             val xstreamUrl = "http://${result.panel.fullAddress}"
             
