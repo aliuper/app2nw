@@ -40,5 +40,7 @@ data class AutoUiState(
     val failingUrls: List<String> = emptyList(),
     val lastRunSaved: Boolean = false,
     val outputPreview: String? = null,
-    val savedFiles: List<SavedFileItem> = emptyList()
+    val savedFiles: List<SavedFileItem> = emptyList(),
+    val hasInterruptedTest: Boolean = false, // Yarıda kalan test var mı
+    val recoveredWorkingUrls: List<String> = emptyList() // Kurtarılan çalışan linkler
 )

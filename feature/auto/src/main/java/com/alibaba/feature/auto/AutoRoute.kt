@@ -43,6 +43,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.FolderOpen
@@ -145,6 +146,9 @@ fun AutoRoute(
         onAutoDetectFormatChange = viewModel::setAutoDetectFormat,
         onFormatChange = viewModel::setOutputFormat,
         onTurboModeChange = viewModel::setTurboMode,
+        onResumeTest = viewModel::resumeTest,
+        onDismissInterrupted = viewModel::dismissInterruptedTest,
+        onClearRecoveredLinks = viewModel::clearRecoveredLinks,
         onPrev = viewModel::prevStep,
         onNext = viewModel::nextStep,
         onRun = {
@@ -196,6 +200,9 @@ fun AutoScreen(
     onAutoDetectFormatChange: (Boolean) -> Unit,
     onFormatChange: (OutputFormat) -> Unit,
     onTurboModeChange: (Boolean) -> Unit,
+    onResumeTest: () -> Unit,
+    onDismissInterrupted: () -> Unit,
+    onClearRecoveredLinks: () -> Unit,
     onPrev: () -> Unit,
     onNext: () -> Unit,
     onRun: () -> Unit,
@@ -349,6 +356,145 @@ fun AutoScreen(
                             tint = MaterialTheme.colorScheme.error
                         )
                         Text(text = msg, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+
+            // YARIDA KALAN TEST UYARISI
+            if (state.hasInterruptedTest && !state.loading) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = androidx.compose.material3.CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Warning,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.tertiary
+                            )
+                            Text(
+                                text = "⚠️ Önceki test yarıda kaldı!",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                        }
+                        
+                        val testedCount = state.extractedUrls.count { it.success != null }
+                        val totalCount = state.extractedUrls.size
+                        val remainingCount = totalCount - testedCount
+                        
+                        Text(
+                            text = "Test edilen: $testedCount / $totalCount | Kalan: $remainingCount link",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                        
+                        if (state.workingUrls.isNotEmpty()) {
+                            Text(
+                                text = "✅ ${state.workingUrls.size} çalışan link kurtarıldı",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = onResumeTest,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(imageVector = Icons.Filled.PlayArrow, contentDescription = null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(text = "Kaldığı Yerden Devam Et")
+                            }
+                            
+                            androidx.compose.material3.OutlinedButton(
+                                onClick = onDismissInterrupted
+                            ) {
+                                Text(text = "Kapat")
+                            }
+                        }
+                    }
+                }
+            }
+
+            // KURTARILAN LİNKLER BÖLÜMÜ
+            if (state.recoveredWorkingUrls.isNotEmpty() && !state.loading) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = androidx.compose.material3.CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.CheckCircle,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = "Kurtarılan Linkler (${state.recoveredWorkingUrls.size})",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                            
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                androidx.compose.material3.IconButton(
+                                    onClick = {
+                                        val text = state.recoveredWorkingUrls.joinToString("\n")
+                                        clipboard.setText(AnnotatedString(text))
+                                        Toast.makeText(context, "${state.recoveredWorkingUrls.size} link kopyalandı", Toast.LENGTH_SHORT).show()
+                                    }
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.ContentCopy,
+                                        contentDescription = "Kopyala",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                
+                                androidx.compose.material3.IconButton(onClick = onClearRecoveredLinks) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Clear,
+                                        contentDescription = "Temizle",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                        }
+                        
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 150.dp)
+                        ) {
+                            itemsIndexed(state.recoveredWorkingUrls) { index, url ->
+                                Text(
+                                    text = "${index + 1}. $url",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                        }
                     }
                 }
             }

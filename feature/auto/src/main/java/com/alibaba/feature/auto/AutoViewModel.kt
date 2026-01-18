@@ -115,6 +115,9 @@ class AutoViewModel @Inject constructor(
                 parseStringListFromJson(countriesJson).toSet()
             } else setOf("TR")
             
+            // Yarıda kalan test var mı kontrol et
+            val hasInterrupted = wasTesting && extractedUrls.any { u -> u.success == null }
+            
             if (extractedUrls.isNotEmpty() || workingUrls.isNotEmpty()) {
                 _state.update { 
                     it.copy(
@@ -124,10 +127,9 @@ class AutoViewModel @Inject constructor(
                         failingUrls = failingUrls,
                         turboMode = turboMode,
                         selectedCountries = selectedCountries,
-                        // Eğer test devam ediyorduysa bilgilendir
-                        errorMessage = if (wasTesting && extractedUrls.any { u -> u.success == null }) {
-                            "⚠️ Önceki test yarıda kaldı. ${workingUrls.size} çalışan link kurtarıldı. Devam etmek için tekrar başlatın."
-                        } else null
+                        hasInterruptedTest = hasInterrupted,
+                        recoveredWorkingUrls = workingUrls, // Kurtarılan linkler
+                        errorMessage = null // Artık UI'da göstereceğiz
                     )
                 }
             }
@@ -329,9 +331,41 @@ class AutoViewModel @Inject constructor(
                 outputPreview = null,
                 savedFiles = emptyList(),
                 mergeRenameWarning = null,
-                backgroundWorkId = null
+                backgroundWorkId = null,
+                hasInterruptedTest = false,
+                recoveredWorkingUrls = emptyList()
             )
         }
+    }
+    
+    fun dismissInterruptedTest() {
+        // Yarıda kalan test uyarısını kapat ama kurtarılan linkleri koru
+        _state.update { it.copy(hasInterruptedTest = false) }
+    }
+    
+    fun clearRecoveredLinks() {
+        // Kurtarılan linkleri temizle
+        _state.update { it.copy(recoveredWorkingUrls = emptyList()) }
+        // SharedPreferences'tan da temizle
+        prefs.edit().remove(KEY_WORKING_URLS).apply()
+    }
+    
+    fun resumeTest() {
+        // Yarıda kalan testi devam ettir - sadece test edilmemiş linkleri test et
+        val currentState = state.value
+        val untestedUrls = currentState.extractedUrls.filter { it.success == null }
+        
+        if (untestedUrls.isEmpty()) {
+            _state.update { it.copy(
+                errorMessage = "Devam edilecek link yok - tüm linkler zaten test edilmiş",
+                hasInterruptedTest = false
+            ) }
+            return
+        }
+        
+        // Sadece test edilmemiş linkleri çalıştır
+        _state.update { it.copy(hasInterruptedTest = false) }
+        runWithUrls(untestedUrls.map { it.url }, resumeMode = true)
     }
 
     fun toggleWorkingUrl(url: String, enabled: Boolean) {
@@ -345,6 +379,14 @@ class AutoViewModel @Inject constructor(
         val urls = state.value.extractedUrls.map { it.url }
         if (urls.isEmpty()) {
             _state.update { it.copy(errorMessage = "Önce linkleri ayıkla") }
+            return
+        }
+        runWithUrls(urls, resumeMode = false)
+    }
+    
+    private fun runWithUrls(urls: List<String>, resumeMode: Boolean) {
+        if (urls.isEmpty()) {
+            _state.update { it.copy(errorMessage = "Test edilecek link yok") }
             return
         }
 
@@ -361,22 +403,46 @@ class AutoViewModel @Inject constructor(
 
             progressStartMs = SystemClock.elapsedRealtime()
             completedUrlDurationsMs.clear()
+            
+            // Resume modunda mevcut working/failing linkleri koru
+            val existingWorking = if (resumeMode) state.value.workingUrls else emptyList()
+            val existingFailing = if (resumeMode) state.value.failingUrls else emptyList()
+            
             _state.update { s ->
-                s.copy(
-                    loading = true,
-                    progressPercent = 0,
-                    progressStep = "Başlıyor",
-                    etaSeconds = null,
-                    errorMessage = null,
-                    savedFiles = emptyList(),
-                    workingUrls = emptyList(),
-                    failingUrls = emptyList(),
-                    lastRunSaved = false,
-                    outputPreview = null,
-                    mergeRenameWarning = null,
-                    reportText = null,
-                    extractedUrls = s.extractedUrls.map { it.copy(status = "Beklemede", success = null, testedStreams = 0) }
-                )
+                if (resumeMode) {
+                    // Resume modunda sadece test edilmemiş linklerin durumunu güncelle
+                    s.copy(
+                        loading = true,
+                        progressPercent = 0,
+                        progressStep = "Kaldığı yerden devam ediliyor...",
+                        etaSeconds = null,
+                        errorMessage = null,
+                        lastRunSaved = false,
+                        outputPreview = null,
+                        mergeRenameWarning = null,
+                        reportText = null,
+                        extractedUrls = s.extractedUrls.map { 
+                            if (it.success == null) it.copy(status = "Beklemede", testedStreams = 0)
+                            else it // Zaten test edilmişleri koru
+                        }
+                    )
+                } else {
+                    s.copy(
+                        loading = true,
+                        progressPercent = 0,
+                        progressStep = "Başlıyor",
+                        etaSeconds = null,
+                        errorMessage = null,
+                        savedFiles = emptyList(),
+                        workingUrls = emptyList(),
+                        failingUrls = emptyList(),
+                        lastRunSaved = false,
+                        outputPreview = null,
+                        mergeRenameWarning = null,
+                        reportText = null,
+                        extractedUrls = s.extractedUrls.map { it.copy(status = "Beklemede", success = null, testedStreams = 0) }
+                    )
+                }
             }
 
             val mergeIntoSingle = state.value.mergeIntoSingle
@@ -393,8 +459,13 @@ class AutoViewModel @Inject constructor(
             val renameSamples = ArrayList<String>(16)
 
             // Limit initial capacity to prevent memory bloat
-            val working = ArrayList<String>(minOf(urls.size, 200))
-            val failing = ArrayList<String>(minOf(urls.size, 200))
+            // Resume modunda mevcut linkleri koru
+            val working = ArrayList<String>(minOf(urls.size + existingWorking.size, 300)).apply {
+                addAll(existingWorking)
+            }
+            val failing = ArrayList<String>(minOf(urls.size + existingFailing.size, 300)).apply {
+                addAll(existingFailing)
+            }
             val savedNames = ArrayList<String>(minOf(urls.size + 1, 200))
             val savedUris = ArrayList<String>(minOf(urls.size + 1, 200))
 
