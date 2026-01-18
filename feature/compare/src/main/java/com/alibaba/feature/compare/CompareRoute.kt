@@ -22,6 +22,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.alibaba.domain.model.PlaylistQuality
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 @Composable
 fun CompareRoute(
@@ -309,6 +313,26 @@ fun PlaylistQualityCard(quality: PlaylistQuality) {
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Bold
                     )
+                    // Kalan gün hesaplama
+                    quality.endDate?.let { endDateStr ->
+                        val daysRemaining = calculateDaysRemaining(endDateStr)
+                        if (daysRemaining != null) {
+                            val (text, color) = when {
+                                daysRemaining < 0 -> "⛔ Süresi dolmuş" to MaterialTheme.colorScheme.error
+                                daysRemaining == 0L -> "⚠️ Bugün bitiyor!" to MaterialTheme.colorScheme.error
+                                daysRemaining <= 7 -> "⚠️ $daysRemaining gün kaldı" to MaterialTheme.colorScheme.error
+                                daysRemaining <= 30 -> "📅 $daysRemaining gün kaldı" to MaterialTheme.colorScheme.tertiary
+                                daysRemaining <= 90 -> "📅 $daysRemaining gün kaldı" to MaterialTheme.colorScheme.secondary
+                                else -> "✅ $daysRemaining gün kaldı" to MaterialTheme.colorScheme.primary
+                            }
+                            Text(
+                                text = text,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold,
+                                color = color
+                            )
+                        }
+                    }
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     Text(text = "Kanallar:", style = MaterialTheme.typography.labelSmall)
@@ -434,5 +458,58 @@ fun MetricRow(
                 }
             )
         }
+    }
+}
+
+// Bitiş tarihinden kalan günü hesapla
+private fun calculateDaysRemaining(endDateStr: String): Long? {
+    return try {
+        val now = System.currentTimeMillis()
+        
+        // Farklı tarih formatlarını dene
+        val formats = listOf(
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd",
+            "dd-MM-yyyy HH:mm:ss",
+            "dd-MM-yyyy",
+            "dd/MM/yyyy HH:mm:ss",
+            "dd/MM/yyyy",
+            "MM/dd/yyyy",
+            "yyyy/MM/dd"
+        )
+        
+        var endDate: Date? = null
+        for (format in formats) {
+            try {
+                endDate = SimpleDateFormat(format, Locale.getDefault()).parse(endDateStr)
+                if (endDate != null) break
+            } catch (_: Exception) {
+                continue
+            }
+        }
+        
+        // Unix timestamp olabilir (saniye cinsinden)
+        if (endDate == null) {
+            try {
+                val timestamp = endDateStr.toLongOrNull()
+                if (timestamp != null) {
+                    // 10 haneli ise saniye, 13 haneli ise milisaniye
+                    endDate = if (timestamp > 1_000_000_000_000L) {
+                        Date(timestamp)
+                    } else {
+                        Date(timestamp * 1000)
+                    }
+                }
+            } catch (_: Exception) {
+                // Ignore
+            }
+        }
+        
+        if (endDate == null) return null
+        
+        val diffMs = endDate.time - now
+        TimeUnit.MILLISECONDS.toDays(diffMs)
+    } catch (_: Exception) {
+        null
     }
 }

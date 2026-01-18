@@ -144,6 +144,7 @@ fun AutoRoute(
         onMergeChange = viewModel::setMergeIntoSingle,
         onAutoDetectFormatChange = viewModel::setAutoDetectFormat,
         onFormatChange = viewModel::setOutputFormat,
+        onTurboModeChange = viewModel::setTurboMode,
         onPrev = viewModel::prevStep,
         onNext = viewModel::nextStep,
         onRun = {
@@ -194,6 +195,7 @@ fun AutoScreen(
     onMergeChange: (Boolean) -> Unit,
     onAutoDetectFormatChange: (Boolean) -> Unit,
     onFormatChange: (OutputFormat) -> Unit,
+    onTurboModeChange: (Boolean) -> Unit,
     onPrev: () -> Unit,
     onNext: () -> Unit,
     onRun: () -> Unit,
@@ -461,6 +463,56 @@ fun AutoScreen(
                                         }
                                     }
                                 }
+                            }
+                        }
+
+                        // TURBO MOD - Çok sayıda link için hızlı tarama
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = androidx.compose.material3.CardDefaults.cardColors(
+                                containerColor = if (state.turboMode) {
+                                    MaterialTheme.colorScheme.primaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.surface
+                                }
+                            )
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Bolt,
+                                            contentDescription = null,
+                                            tint = if (state.turboMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = "⚡ TURBO MOD",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = if (state.turboMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                    androidx.compose.material3.Switch(
+                                        checked = state.turboMode,
+                                        onCheckedChange = { onTurboModeChange(it) },
+                                        enabled = !state.loading
+                                    )
+                                }
+                                Text(
+                                    text = if (state.turboMode) {
+                                        "✅ Aktif: Hızlı tarama (3 kanal, 3sn timeout, bekleme yok)"
+                                    } else {
+                                        "Çok sayıda link için önerilir (200+ link)"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                     }

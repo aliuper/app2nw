@@ -158,6 +158,10 @@ class AutoViewModel @Inject constructor(
         _state.update { it.copy(outputFormat = format) }
     }
 
+    fun setTurboMode(enabled: Boolean) {
+        _state.update { it.copy(turboMode = enabled) }
+    }
+
     fun setOutputFolder(uriString: String?) {
         _state.update { it.copy(outputFolderUriString = uriString) }
     }
@@ -236,6 +240,7 @@ class AutoViewModel @Inject constructor(
             val autoDetectFormat = state.value.autoDetectFormat
             val chosenOutputFormat = state.value.outputFormat
             val outputDelivery = settings.outputDelivery
+            val turboMode = state.value.turboMode
 
             val mergedChannels = ArrayList<Channel>(4_096) // Reduced from 16k to prevent OOM
             var mergedEndDate: String? = null
@@ -254,7 +259,8 @@ class AutoViewModel @Inject constructor(
                 val urlStartMs = SystemClock.elapsedRealtime()
                 val header = "${index + 1}/${urls.size}"
                 val basePercent = ((index * 100) / maxOf(1, urls.size)).coerceIn(0, 99)
-                setProgress(percent = basePercent, step = "$header - İndiriliyor")
+                val turboLabel = if (turboMode) "⚡ TURBO - " else ""
+                setProgress(percent = basePercent, step = "$turboLabel$header - İndiriliyor")
                 _state.update { s ->
                     val items = s.extractedUrls.toMutableList()
                     if (index in items.indices) {
@@ -263,27 +269,27 @@ class AutoViewModel @Inject constructor(
                     s.copy(extractedUrls = items)
                 }
 
-                val playlist: Playlist?
+                var playlist: Playlist? = null
                 try {
-                    // More aggressive GC to prevent crashes
-                    if ((index + 1) % 3 == 0) {
-                        @Suppress("ExplicitGarbageCollectionCall")
-                        System.gc()
-                        delay(200) // Longer pause for GC to complete
+                    // AGGRESSIVE MEMORY CLEANUP - Her link öncesi temizlik (çökme önleme)
+                    @Suppress("ExplicitGarbageCollectionCall")
+                    System.gc()
+                    if (!turboMode) {
+                        delay(100) // Turbo modda bekleme yok
                     }
                     
                     playlist = playlistRepository.fetchPlaylist(url)
 
-                    setProgress(percent = (basePercent + 3).coerceAtMost(99), step = "$header - Stream testi")
+                    setProgress(percent = (basePercent + 3).coerceAtMost(99), step = "$turboLabel$header - Stream testi")
                     _state.update { s ->
                         val items = s.extractedUrls.toMutableList()
                         if (index in items.indices) {
-                            items[index] = items[index].copy(status = "Stream testi", success = null)
+                            items[index] = items[index].copy(status = if (turboMode) "⚡ Hızlı test" else "Stream testi", success = null)
                         }
                         s.copy(extractedUrls = items)
                     }
 
-                    val (ok, testedCount, totalCount) = runStreamTestDetailed(playlist) { tested, total ->
+                    val (ok, testedCount, totalCount) = runStreamTestDetailed(playlist, turboMode) { tested, total ->
                         val now = SystemClock.elapsedRealtime()
                         val shouldUpdate = tested >= total || (now - lastStreamUiUpdateMs) >= 500
                         if (shouldUpdate) {
@@ -431,6 +437,14 @@ class AutoViewModel @Inject constructor(
                         s.copy(extractedUrls = items)
                     }
                     continue
+                } finally {
+                    // HER LİNK SONRASI BELLEK TEMİZLİĞİ - Çökme önleme
+                    // Playlist referansını temizle
+                    playlist = null
+                    
+                    // Garbage collection çağır
+                    @Suppress("ExplicitGarbageCollectionCall")
+                    System.gc()
                 }
             }
 
@@ -517,6 +531,7 @@ class AutoViewModel @Inject constructor(
 
     private suspend fun runStreamTestDetailed(
         playlist: Playlist,
+        turboMode: Boolean = false,
         onTestUpdate: (tested: Int, total: Int) -> Unit
     ): Triple<Boolean, Int, Int> = withContext(Dispatchers.IO) {
         val settings = settingsRepository.settings.first()
@@ -533,28 +548,47 @@ class AutoViewModel @Inject constructor(
 
         if (candidates.isEmpty()) return@withContext Triple(false, 0, 0)
 
-        val max = settings.streamTestSampleSize.coerceIn(1, 50)
+        // TURBO MOD: Daha az örnek, daha kısa timeout
+        val maxSample = if (turboMode) {
+            minOf(3, settings.streamTestSampleSize) // Turbo: max 3 kanal test et
+        } else {
+            settings.streamTestSampleSize.coerceIn(1, 50)
+        }
+        
+        val turboTimeout = if (turboMode) {
+            minOf(3000L, settings.streamTestTimeoutMs) // Turbo: max 3 saniye timeout
+        } else {
+            settings.streamTestTimeoutMs
+        }
+
         val pool = if (settings.shuffleCandidates) candidates.shuffled(Random(System.currentTimeMillis())) else candidates
-        val sample = if (pool.size <= max) pool else pool.take(max)
+        val sample = if (pool.size <= maxSample) pool else pool.take(maxSample)
 
         val total = sample.size
         var tested = 0
         var okCount = 0
+        
+        // TURBO MOD: 1 çalışan kanal yeterli
+        val minRequired = if (turboMode) 1 else settings.minPlayableStreamsToPass
+        
         for (url in sample) {
             yield() // Prevent ANR
             tested += 1
             onTestUpdate(tested, total)
-            if (streamTester.isPlayable(url, settings.streamTestTimeoutMs)) {
+            if (streamTester.isPlayable(url, turboTimeout)) {
                 okCount += 1
-                if (okCount >= settings.minPlayableStreamsToPass) {
+                if (okCount >= minRequired) {
                     return@withContext Triple(true, tested, total)
                 }
             }
 
-            if (settings.delayBetweenStreamTestsMs > 0) {
-                delay(settings.delayBetweenStreamTestsMs)
-            } else {
-                delay(50) // Small delay to prevent ANR even when user sets 0
+            // TURBO MOD: Bekleme yok
+            if (!turboMode) {
+                if (settings.delayBetweenStreamTestsMs > 0) {
+                    delay(settings.delayBetweenStreamTestsMs)
+                } else {
+                    delay(50) // Small delay to prevent ANR even when user sets 0
+                }
             }
         }
 
