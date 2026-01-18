@@ -123,8 +123,13 @@ class StreamTestService : Service() {
     }
 
     private fun createNotification(text: String, progress: Int, eta: Int?): Notification {
+        // Mevcut activity'yi öne getir, yeniden başlatma
+        // FLAG_ACTIVITY_SINGLE_TOP: Eğer activity zaten en üstteyse yeniden oluşturma
+        // FLAG_ACTIVITY_CLEAR_TOP: Üstündeki activity'leri kapat ve mevcut olanı öne getir
         val intent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            // Ekstra flag: Yeni task oluşturma, mevcut task'a git
+            addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         }
         val pendingIntent = PendingIntent.getActivity(
             this,
@@ -162,8 +167,10 @@ class StreamTestService : Service() {
     }
 
     private fun createCompletionNotification(success: Boolean, message: String): Notification {
+        // Mevcut activity'yi öne getir, yeniden başlatma
         val intent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         }
         val pendingIntent = PendingIntent.getActivity(
             this,

@@ -44,6 +44,13 @@ class MainActivity : ComponentActivity() {
         }
     }
     
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // Bildirimden tıklandığında buraya gelir
+        // Activity zaten var, sadece öne getirildi
+        // State korunur, hiçbir şey yapmaya gerek yok
+    }
+    
     private fun requestBackgroundPermissions() {
         // 1. Bildirim izni (Android 13+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
