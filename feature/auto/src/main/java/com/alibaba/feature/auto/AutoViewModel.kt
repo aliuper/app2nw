@@ -2,6 +2,7 @@ package com.alibaba.feature.auto
 
 import android.os.SystemClock
 import android.content.Context
+import android.content.SharedPreferences
 import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -31,6 +32,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.UUID
 import kotlin.random.Random
 import javax.inject.Inject
@@ -51,8 +54,23 @@ class AutoViewModel @Inject constructor(
     private var progressStartMs: Long? = null
     private val completedUrlDurationsMs = ArrayList<Long>(64)
     private var lastStreamUiUpdateMs: Long = 0L
+    
+    // State persistence için SharedPreferences
+    private val prefs: SharedPreferences = appContext.getSharedPreferences("auto_test_state", Context.MODE_PRIVATE)
+    private companion object {
+        const val KEY_EXTRACTED_URLS = "extracted_urls"
+        const val KEY_WORKING_URLS = "working_urls"
+        const val KEY_FAILING_URLS = "failing_urls"
+        const val KEY_INPUT_TEXT = "input_text"
+        const val KEY_IS_TESTING = "is_testing"
+        const val KEY_TURBO_MODE = "turbo_mode"
+        const val KEY_SELECTED_COUNTRIES = "selected_countries"
+    }
 
     init {
+        // Kaydedilmiş state'i geri yükle
+        restoreSavedState()
+        
         viewModelScope.launch {
             settingsRepository.settings.collect { s ->
                 _state.update { st ->
@@ -65,6 +83,131 @@ class AutoViewModel @Inject constructor(
                 }
             }
         }
+    }
+    
+    private fun restoreSavedState() {
+        try {
+            val wasTesting = prefs.getBoolean(KEY_IS_TESTING, false)
+            val inputText = prefs.getString(KEY_INPUT_TEXT, "") ?: ""
+            val turboMode = prefs.getBoolean(KEY_TURBO_MODE, false)
+            val countriesJson = prefs.getString(KEY_SELECTED_COUNTRIES, null)
+            
+            // Extracted URLs'i geri yükle
+            val extractedUrlsJson = prefs.getString(KEY_EXTRACTED_URLS, null)
+            val extractedUrls = if (extractedUrlsJson != null) {
+                parseUrlItemsFromJson(extractedUrlsJson)
+            } else emptyList()
+            
+            // Working URLs'i geri yükle
+            val workingUrlsJson = prefs.getString(KEY_WORKING_URLS, null)
+            val workingUrls = if (workingUrlsJson != null) {
+                parseStringListFromJson(workingUrlsJson)
+            } else emptyList()
+            
+            // Failing URLs'i geri yükle
+            val failingUrlsJson = prefs.getString(KEY_FAILING_URLS, null)
+            val failingUrls = if (failingUrlsJson != null) {
+                parseStringListFromJson(failingUrlsJson)
+            } else emptyList()
+            
+            // Selected countries'i geri yükle
+            val selectedCountries = if (countriesJson != null) {
+                parseStringListFromJson(countriesJson).toSet()
+            } else setOf("TR")
+            
+            if (extractedUrls.isNotEmpty() || workingUrls.isNotEmpty()) {
+                _state.update { 
+                    it.copy(
+                        inputText = inputText,
+                        extractedUrls = extractedUrls,
+                        workingUrls = workingUrls,
+                        failingUrls = failingUrls,
+                        turboMode = turboMode,
+                        selectedCountries = selectedCountries,
+                        // Eğer test devam ediyorduysa bilgilendir
+                        errorMessage = if (wasTesting && extractedUrls.any { u -> u.success == null }) {
+                            "⚠️ Önceki test yarıda kaldı. ${workingUrls.size} çalışan link kurtarıldı. Devam etmek için tekrar başlatın."
+                        } else null
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            // Hata durumunda sessizce devam et
+        }
+    }
+    
+    private fun saveCurrentState() {
+        try {
+            val currentState = _state.value
+            prefs.edit().apply {
+                putString(KEY_INPUT_TEXT, currentState.inputText)
+                putString(KEY_EXTRACTED_URLS, urlItemsToJson(currentState.extractedUrls))
+                putString(KEY_WORKING_URLS, stringListToJson(currentState.workingUrls))
+                putString(KEY_FAILING_URLS, stringListToJson(currentState.failingUrls))
+                putBoolean(KEY_IS_TESTING, currentState.loading)
+                putBoolean(KEY_TURBO_MODE, currentState.turboMode)
+                putString(KEY_SELECTED_COUNTRIES, stringListToJson(currentState.selectedCountries.toList()))
+                apply()
+            }
+        } catch (e: Exception) {
+            // Hata durumunda sessizce devam et
+        }
+    }
+    
+    private fun clearSavedState() {
+        prefs.edit().clear().apply()
+    }
+    
+    private fun urlItemsToJson(items: List<UrlItem>): String {
+        val jsonArray = JSONArray()
+        items.forEach { item ->
+            val obj = JSONObject().apply {
+                put("url", item.url)
+                put("status", item.status ?: "")
+                put("success", item.success)
+                put("testedStreams", item.testedStreams)
+            }
+            jsonArray.put(obj)
+        }
+        return jsonArray.toString()
+    }
+    
+    private fun parseUrlItemsFromJson(json: String): List<UrlItem> {
+        val result = mutableListOf<UrlItem>()
+        try {
+            val jsonArray = JSONArray(json)
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                result.add(UrlItem(
+                    url = obj.getString("url"),
+                    status = obj.optString("status").takeIf { it.isNotEmpty() },
+                    success = if (obj.isNull("success")) null else obj.getBoolean("success"),
+                    testedStreams = obj.optInt("testedStreams", 0)
+                ))
+            }
+        } catch (e: Exception) {
+            // Parse hatası
+        }
+        return result
+    }
+    
+    private fun stringListToJson(list: List<String>): String {
+        val jsonArray = JSONArray()
+        list.forEach { jsonArray.put(it) }
+        return jsonArray.toString()
+    }
+    
+    private fun parseStringListFromJson(json: String): List<String> {
+        val result = mutableListOf<String>()
+        try {
+            val jsonArray = JSONArray(json)
+            for (i in 0 until jsonArray.length()) {
+                result.add(jsonArray.getString(i))
+            }
+        } catch (e: Exception) {
+            // Parse hatası
+        }
+        return result
     }
 
     fun onInputChange(value: String) {
@@ -167,6 +310,7 @@ class AutoViewModel @Inject constructor(
     }
 
     fun clearAll() {
+        clearSavedState() // Kaydedilmiş state'i de temizle
         _state.update { s ->
             s.copy(
                 step = 0,
@@ -316,8 +460,9 @@ class AutoViewModel @Inject constructor(
                             if (index in items.indices) {
                                 items[index] = items[index].copy(status = "Stream testi başarısız", success = false, testedStreams = testedCount)
                             }
-                            s.copy(extractedUrls = items)
+                            s.copy(extractedUrls = items, failingUrls = failing.toList())
                         }
+                        saveCurrentState() // Her link sonrası kaydet
                         continue
                     }
 
@@ -331,8 +476,9 @@ class AutoViewModel @Inject constructor(
                                 if (index in items.indices) {
                                     items[index] = items[index].copy(status = "Seçilen ülke(ler) için kanal yok", success = false, testedStreams = totalCount)
                                 }
-                                s.copy(extractedUrls = items)
+                                s.copy(extractedUrls = items, failingUrls = failing.toList())
                             }
+                            saveCurrentState() // Her link sonrası kaydet
                             continue
                         }
                         p
@@ -355,9 +501,10 @@ class AutoViewModel @Inject constructor(
                             if (index in items.indices) {
                                 items[index] = items[index].copy(status = "Birleştirildi", success = true, testedStreams = totalCount)
                             }
-                            s.copy(extractedUrls = items)
+                            s.copy(extractedUrls = items, workingUrls = working.toList())
                         }
                         completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
+                        saveCurrentState() // Her başarılı link sonrası kaydet
                     } else {
                         if (outputDelivery == OutputDelivery.FILE) {
                             setProgress(percent = (basePercent + 6).coerceAtMost(99), step = "$header - Kaydediliyor")
@@ -392,16 +539,18 @@ class AutoViewModel @Inject constructor(
                                 if (index in items.indices) {
                                     items[index] = items[index].copy(status = "Kaydedildi", success = true, testedStreams = totalCount)
                                 }
-                                s.copy(extractedUrls = items)
+                                s.copy(extractedUrls = items, workingUrls = working.toList())
                             }
+                            saveCurrentState() // Her başarılı link sonrası kaydet
                         } else {
                             _state.update { s ->
                                 val items = s.extractedUrls.toMutableList()
                                 if (index in items.indices) {
                                     items[index] = items[index].copy(status = "Başarılı", success = true, testedStreams = totalCount)
                                 }
-                                s.copy(extractedUrls = items)
+                                s.copy(extractedUrls = items, workingUrls = working.toList())
                             }
+                            saveCurrentState() // Her başarılı link sonrası kaydet
                         }
                         completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
                     }
@@ -414,8 +563,9 @@ class AutoViewModel @Inject constructor(
                         if (index in items.indices) {
                             items[index] = items[index].copy(status = "Bellek yetersiz - temizleniyor", success = false)
                         }
-                        s.copy(extractedUrls = items)
+                        s.copy(extractedUrls = items, failingUrls = failing.toList())
                     }
+                    saveCurrentState() // Hata durumunda da kaydet
                     
                     // Aggressive memory cleanup
                     mergedChannels.clear()
@@ -434,8 +584,9 @@ class AutoViewModel @Inject constructor(
                         if (index in items.indices) {
                             items[index] = items[index].copy(status = "Hata: ${e.message}", success = false)
                         }
-                        s.copy(extractedUrls = items)
+                        s.copy(extractedUrls = items, failingUrls = failing.toList())
                     }
+                    saveCurrentState() // Hata durumunda da kaydet
                     continue
                 } finally {
                     // HER LİNK SONRASI BELLEK TEMİZLİĞİ - Çökme önleme
@@ -514,6 +665,9 @@ class AutoViewModel @Inject constructor(
                     outputFolderUriString = if (outputDelivery == OutputDelivery.LINKS) null else it.outputFolderUriString
                 )
             }
+            
+            // Test başarıyla tamamlandı - kaydedilmiş state'i temizle
+            clearSavedState()
 
             // Stop service and show completion notification
             StreamTestService.stop(appContext)
