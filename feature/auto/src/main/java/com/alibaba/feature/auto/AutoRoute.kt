@@ -217,6 +217,54 @@ fun AutoScreen(
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
 
+    // Sıfırlama onay dialogu state'i
+    var showClearConfirmDialog by remember { mutableStateOf(false) }
+    
+    // Sıfırlama onay dialogu
+    if (showClearConfirmDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showClearConfirmDialog = false },
+            title = { Text("Tüm Verileri Sıfırla") },
+            text = {
+                Column {
+                    Text("Tüm tarama verilerini silmek istediğinize emin misiniz?")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "• ${state.extractedUrls.size} adet link\n• ${state.workingUrls.size} çalışan link\n• ${state.recoveredWorkingUrls.size} kurtarılan link",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Bu işlem geri alınamaz!",
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showClearConfirmDialog = false
+                        onClear()
+                    },
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Evet, Sıfırla")
+                }
+            },
+            dismissButton = {
+                androidx.compose.material3.OutlinedButton(
+                    onClick = { showClearConfirmDialog = false }
+                ) {
+                    Text("İptal")
+                }
+            }
+        )
+    }
+    
     val maxStep = if (state.outputDelivery == OutputDelivery.LINKS) {
         if (state.enableCountryFiltering) 2 else 1
     } else {
@@ -289,8 +337,23 @@ fun AutoScreen(
                 }
 
                 if (stepIndex < (stepCount - 1)) {
-                    Button(onClick = onNext, enabled = canGoNext) {
-                        Text(text = "İleri")
+                    // Yarıda kalan test varsa "Kaldığı Yerden Devam Et" butonu göster
+                    if (state.hasInterruptedTest) {
+                        Button(
+                            onClick = onResumeTest,
+                            enabled = !state.loading,
+                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.tertiary
+                            )
+                        ) {
+                            Icon(imageVector = Icons.Filled.PlayArrow, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(text = "Devam Et")
+                        }
+                    } else {
+                        Button(onClick = onNext, enabled = canGoNext) {
+                            Text(text = "İleri")
+                        }
                     }
                 } else {
                     // LINKS modunda test otomatik başlar; FILE modunda burada Başlat butonu kalır.
@@ -584,8 +647,21 @@ fun AutoScreen(
                             Text(text = "Panodan Yapıştır")
                         }
 
-                        Button(onClick = onClear, enabled = !state.loading) {
-                            Text(text = "Temizle")
+                        Button(
+                            onClick = {
+                                // Eğer veri varsa onay dialogu göster
+                                if (state.extractedUrls.isNotEmpty() || state.workingUrls.isNotEmpty() || state.recoveredWorkingUrls.isNotEmpty()) {
+                                    showClearConfirmDialog = true
+                                } else {
+                                    onClear()
+                                }
+                            },
+                            enabled = !state.loading,
+                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error
+                            )
+                        ) {
+                            Text(text = "Sıfırla")
                         }
                     }
 
