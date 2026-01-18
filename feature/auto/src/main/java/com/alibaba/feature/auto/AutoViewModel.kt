@@ -469,17 +469,24 @@ class AutoViewModel @Inject constructor(
             val savedNames = ArrayList<String>(minOf(urls.size + 1, 200))
             val savedUris = ArrayList<String>(minOf(urls.size + 1, 200))
 
-            for ((index, url) in urls.withIndex()) {
+            for ((loopIndex, url) in urls.withIndex()) {
                 yield() // Prevent ANR by allowing other coroutines to run
+                
+                // URL'nin extractedUrls içindeki GERÇEK index'ini bul
+                val realIndex = state.value.extractedUrls.indexOfFirst { it.url == url }
+                if (realIndex == -1) continue // URL bulunamadıysa atla
+                
                 val urlStartMs = SystemClock.elapsedRealtime()
-                val header = "${index + 1}/${urls.size}"
-                val basePercent = ((index * 100) / maxOf(1, urls.size)).coerceIn(0, 99)
+                val totalUrls = state.value.extractedUrls.size
+                val testedSoFar = state.value.extractedUrls.count { it.success != null }
+                val header = "${testedSoFar + 1}/${totalUrls}"
+                val basePercent = (((testedSoFar) * 100) / maxOf(1, totalUrls)).coerceIn(0, 99)
                 val turboLabel = if (turboMode) "⚡ TURBO - " else ""
                 setProgress(percent = basePercent, step = "$turboLabel$header - İndiriliyor")
                 _state.update { s ->
                     val items = s.extractedUrls.toMutableList()
-                    if (index in items.indices) {
-                        items[index] = items[index].copy(status = "İndiriliyor", success = null, testedStreams = 0)
+                    if (realIndex in items.indices) {
+                        items[realIndex] = items[realIndex].copy(status = "İndiriliyor", success = null, testedStreams = 0)
                     }
                     s.copy(extractedUrls = items)
                 }
@@ -498,8 +505,8 @@ class AutoViewModel @Inject constructor(
                     setProgress(percent = (basePercent + 3).coerceAtMost(99), step = "$turboLabel$header - Stream testi")
                     _state.update { s ->
                         val items = s.extractedUrls.toMutableList()
-                        if (index in items.indices) {
-                            items[index] = items[index].copy(status = if (turboMode) "⚡ Hızlı test" else "Stream testi", success = null)
+                        if (realIndex in items.indices) {
+                            items[realIndex] = items[realIndex].copy(status = if (turboMode) "⚡ Hızlı test" else "Stream testi", success = null)
                         }
                         s.copy(extractedUrls = items)
                     }
@@ -511,8 +518,8 @@ class AutoViewModel @Inject constructor(
                             lastStreamUiUpdateMs = now
                             _state.update { s ->
                                 val items = s.extractedUrls.toMutableList()
-                                if (index in items.indices) {
-                                    items[index] = items[index].copy(
+                                if (realIndex in items.indices) {
+                                    items[realIndex] = items[realIndex].copy(
                                         status = "Test ${tested}/${total}",
                                         success = null,
                                         testedStreams = tested
@@ -528,8 +535,8 @@ class AutoViewModel @Inject constructor(
                         completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
                         _state.update { s ->
                             val items = s.extractedUrls.toMutableList()
-                            if (index in items.indices) {
-                                items[index] = items[index].copy(status = "Stream testi başarısız", success = false, testedStreams = testedCount)
+                            if (realIndex in items.indices) {
+                                items[realIndex] = items[realIndex].copy(status = "Stream testi başarısız", success = false, testedStreams = testedCount)
                             }
                             s.copy(extractedUrls = items, failingUrls = failing.toList())
                         }
@@ -544,8 +551,8 @@ class AutoViewModel @Inject constructor(
                             completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
                             _state.update { s ->
                                 val items = s.extractedUrls.toMutableList()
-                                if (index in items.indices) {
-                                    items[index] = items[index].copy(status = "Seçilen ülke(ler) için kanal yok", success = false, testedStreams = totalCount)
+                                if (realIndex in items.indices) {
+                                    items[realIndex] = items[realIndex].copy(status = "Seçilen ülke(ler) için kanal yok", success = false, testedStreams = totalCount)
                                 }
                                 s.copy(extractedUrls = items, failingUrls = failing.toList())
                             }
@@ -569,8 +576,8 @@ class AutoViewModel @Inject constructor(
                         mergedEndDate = mergedEndDate ?: filtered.endDate
                         _state.update { s ->
                             val items = s.extractedUrls.toMutableList()
-                            if (index in items.indices) {
-                                items[index] = items[index].copy(status = "Birleştirildi", success = true, testedStreams = totalCount)
+                            if (realIndex in items.indices) {
+                                items[realIndex] = items[realIndex].copy(status = "Birleştirildi", success = true, testedStreams = totalCount)
                             }
                             s.copy(extractedUrls = items, workingUrls = working.toList())
                         }
@@ -607,8 +614,8 @@ class AutoViewModel @Inject constructor(
 
                             _state.update { s ->
                                 val items = s.extractedUrls.toMutableList()
-                                if (index in items.indices) {
-                                    items[index] = items[index].copy(status = "Kaydedildi", success = true, testedStreams = totalCount)
+                                if (realIndex in items.indices) {
+                                    items[realIndex] = items[realIndex].copy(status = "Kaydedildi", success = true, testedStreams = totalCount)
                                 }
                                 s.copy(extractedUrls = items, workingUrls = working.toList())
                             }
@@ -616,8 +623,8 @@ class AutoViewModel @Inject constructor(
                         } else {
                             _state.update { s ->
                                 val items = s.extractedUrls.toMutableList()
-                                if (index in items.indices) {
-                                    items[index] = items[index].copy(status = "Başarılı", success = true, testedStreams = totalCount)
+                                if (realIndex in items.indices) {
+                                    items[realIndex] = items[realIndex].copy(status = "Başarılı", success = true, testedStreams = totalCount)
                                 }
                                 s.copy(extractedUrls = items, workingUrls = working.toList())
                             }
@@ -631,8 +638,8 @@ class AutoViewModel @Inject constructor(
                     completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
                     _state.update { s ->
                         val items = s.extractedUrls.toMutableList()
-                        if (index in items.indices) {
-                            items[index] = items[index].copy(status = "Bellek yetersiz - temizleniyor", success = false)
+                        if (realIndex in items.indices) {
+                            items[realIndex] = items[realIndex].copy(status = "Bellek yetersiz - temizleniyor", success = false)
                         }
                         s.copy(extractedUrls = items, failingUrls = failing.toList())
                     }
@@ -652,8 +659,8 @@ class AutoViewModel @Inject constructor(
                     completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
                     _state.update { s ->
                         val items = s.extractedUrls.toMutableList()
-                        if (index in items.indices) {
-                            items[index] = items[index].copy(status = "Hata: ${e.message}", success = false)
+                        if (realIndex in items.indices) {
+                            items[realIndex] = items[realIndex].copy(status = "Hata: ${e.message}", success = false)
                         }
                         s.copy(extractedUrls = items, failingUrls = failing.toList())
                     }
