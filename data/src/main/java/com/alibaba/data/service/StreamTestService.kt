@@ -38,13 +38,17 @@ class StreamTestService : Service() {
         createNotificationChannel()
         
         // Acquire wake lock to prevent CPU sleep during testing
+        // PARTIAL_WAKE_LOCK: CPU çalışmaya devam eder, ekran kapalı olabilir
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(
             PowerManager.PARTIAL_WAKE_LOCK,
             "Alibaba::StreamTestWakeLock"
         ).apply {
-            acquire(60 * 60 * 1000L) // 1 hour max
+            setReferenceCounted(false)
+            acquire() // Sınırsız - stopSelf() çağrılana kadar
         }
+        
+        instance = this
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -74,6 +78,7 @@ class StreamTestService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        instance = null
         wakeLock?.let {
             if (it.isHeld) {
                 it.release()
@@ -82,6 +87,12 @@ class StreamTestService : Service() {
         wakeLock = null
         serviceScope.cancel()
         super.onDestroy()
+    }
+    
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // Uygulama kapatıldığında bile çalışmaya devam et
+        // Termux gibi davranış
+        super.onTaskRemoved(rootIntent)
     }
 
     fun updateProgress(step: String, percent: Int, eta: Int?) {
@@ -182,6 +193,12 @@ class StreamTestService : Service() {
         private const val NOTIFICATION_ID = 1001
         const val ACTION_START_TEST = "com.alibaba.START_TEST"
         const val ACTION_STOP_TEST = "com.alibaba.STOP_TEST"
+        
+        @Volatile
+        private var instance: StreamTestService? = null
+        
+        val isRunning: Boolean
+            get() = instance != null
 
         fun start(context: Context) {
             val intent = Intent(context, StreamTestService::class.java).apply {

@@ -27,9 +27,18 @@
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
 
+        <!-- Stream Test Service - Arka planda çalışma -->
+        <service
+            android:name="com.alibaba.data.service.StreamTestService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            android:stopWithTask="false" />
+
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
