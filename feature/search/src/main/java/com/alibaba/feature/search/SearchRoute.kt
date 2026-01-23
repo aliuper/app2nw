@@ -37,6 +37,9 @@ fun SearchRoute(
         onNavigateBack = onNavigateBack,
         onQueryChange = viewModel::setQuery,
         onMaxResultsChange = viewModel::setMaxResults,
+        onToggleOnlyTurkey = viewModel::toggleOnlyTurkey,
+        onToggleOnlyPanelUrls = viewModel::toggleOnlyPanelUrls,
+        onKeywordFilterChange = viewModel::setKeywordFilter,
         onSearch = viewModel::search,
         onToggleUrl = viewModel::toggleUrlSelection,
         onSelectAll = viewModel::selectAll,
@@ -62,6 +65,9 @@ fun SearchScreen(
     onNavigateBack: () -> Unit,
     onQueryChange: (String) -> Unit,
     onMaxResultsChange: (Int) -> Unit,
+    onToggleOnlyTurkey: () -> Unit,
+    onToggleOnlyPanelUrls: () -> Unit,
+    onKeywordFilterChange: (String) -> Unit,
     onSearch: () -> Unit,
     onToggleUrl: (String) -> Unit,
     onSelectAll: () -> Unit,
@@ -118,6 +124,67 @@ fun SearchScreen(
                             cursorColor = Color(0xFF00FF41)
                         ),
                         enabled = !state.searching
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Filters
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = state.onlyTurkey,
+                            onCheckedChange = { onToggleOnlyTurkey() },
+                            enabled = !state.searching,
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = Color(0xFF00FF41),
+                                uncheckedColor = Color(0xFF404040)
+                            )
+                        )
+                        Text(
+                            text = "Sadece TR (IP/TR veya Türkçe ipucu)",
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = state.onlyPanelUrls,
+                            onCheckedChange = { onToggleOnlyPanelUrls() },
+                            enabled = !state.searching,
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = Color(0xFF00FF41),
+                                uncheckedColor = Color(0xFF404040)
+                            )
+                        )
+                        Text(
+                            text = "Sadece Panel URL (get.php / player_api.php)",
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+
+                    OutlinedTextField(
+                        value = state.keywordFilter,
+                        onValueChange = onKeywordFilterChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("Örn: turk türk türkiye") },
+                        label = { Text("Kelime Filtresi") },
+                        enabled = !state.searching,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color.White,
+                            unfocusedTextColor = Color.White,
+                            focusedBorderColor = Color(0xFF00FF41),
+                            unfocusedBorderColor = Color(0xFF404040),
+                            cursorColor = Color(0xFF00FF41),
+                            focusedLabelColor = Color(0xFF00FFFF),
+                            unfocusedLabelColor = Color(0xFF00FFFF)
+                        )
                     )
                     
                     Spacer(modifier = Modifier.height(8.dp))
