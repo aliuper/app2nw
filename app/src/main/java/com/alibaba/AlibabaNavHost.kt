@@ -14,6 +14,7 @@ import com.alibaba.feature.analyze.AnalyzeRoute
 import com.alibaba.feature.compare.CompareRoute
 import com.alibaba.feature.home.HomeScreen
 import com.alibaba.feature.manual.ManualRoute
+import com.alibaba.feature.exploittest.ExploitTestRoute
 import com.alibaba.feature.panelscan.PanelScanRoute
 import com.alibaba.feature.search.SearchRoute
 import com.alibaba.settings.SettingsScreen
@@ -27,6 +28,7 @@ private object Routes {
     const val SEARCH = "search"
     const val COMPARE = "compare"
     const val PANELSCAN = "panelscan"
+    const val EXPLOITTEST = "exploittest"
 }
 
 @Composable
@@ -47,7 +49,8 @@ fun AlibabaNavHost(modifier: Modifier = Modifier) {
                 onSettingsClick = { navController.navigate(Routes.SETTINGS) },
                 onSearchClick = { navController.navigate(Routes.SEARCH) },
                 onCompareClick = { navController.navigate(Routes.COMPARE) },
-                onPanelScanClick = { navController.navigate(Routes.PANELSCAN) }
+                onPanelScanClick = { navController.navigate(Routes.PANELSCAN) },
+                onExploitTestClick = { navController.navigate(Routes.EXPLOITTEST) }
             )
         }
 
@@ -86,6 +89,12 @@ fun AlibabaNavHost(modifier: Modifier = Modifier) {
 
         composable(Routes.PANELSCAN) {
             PanelScanRoute(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.EXPLOITTEST) {
+            ExploitTestRoute(
                 onNavigateBack = { navController.popBackStack() }
             )
         }

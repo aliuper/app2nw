@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Compare
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Scanner
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -37,6 +38,7 @@ fun HomeScreen(
     onSearchClick: () -> Unit = {},
     onCompareClick: () -> Unit = {},
     onPanelScanClick: () -> Unit = {},
+    onExploitTestClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Scaffold(
@@ -115,6 +117,15 @@ fun HomeScreen(
                 Icon(imageVector = Icons.Filled.Scanner, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(text = "Panel Tarayıcı")
+            }
+
+            Button(
+                onClick = onExploitTestClick,
+                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+            ) {
+                Icon(imageVector = Icons.Filled.Security, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = "🔓 Panel Güvenlik Testi")
             }
         }
     }
