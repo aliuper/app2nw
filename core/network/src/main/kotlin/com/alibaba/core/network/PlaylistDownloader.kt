@@ -4,13 +4,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.util.concurrent.TimeUnit
 
 class PlaylistDownloader(
     private val client: OkHttpClient
 ) {
     suspend fun downloadLines(url: String): List<String> = withContext(Dispatchers.IO) {
         val request = Request.Builder().url(url).get().build()
-        client.newCall(request).execute().use { response ->
+        val call = client.newCall(request)
+        call.timeout().timeout(120, TimeUnit.SECONDS)
+        call.execute().use { response ->
             if (!response.isSuccessful) {
                 throw IllegalStateException("HTTP ${'$'}{response.code}")
             }
@@ -32,6 +35,19 @@ class PlaylistDownloader(
             }
             
             lines
+        }
+    }
+
+    suspend fun downloadText(url: String): String = withContext(Dispatchers.IO) {
+        val request = Request.Builder().url(url).get().build()
+        val call = client.newCall(request)
+        call.timeout().timeout(20, TimeUnit.SECONDS)
+        call.execute().use { response ->
+            if (!response.isSuccessful) {
+                throw IllegalStateException("HTTP ${'$'}{response.code}")
+            }
+            val body = response.body ?: throw IllegalStateException("Empty body")
+            body.string()
         }
     }
 }

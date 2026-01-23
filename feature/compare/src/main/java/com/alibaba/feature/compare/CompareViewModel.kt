@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 import javax.inject.Inject
 
@@ -77,18 +78,19 @@ class CompareViewModel @Inject constructor(
                     )
                 }
 
-                try {
-                    // Fetch playlist
-                    val playlist = playlistRepository.fetchPlaylist(url)
-                    
-                    // Test quality
-                    val metrics = qualityTester.testQuality(playlist, sampleSize = 5)
-                    val score = metrics.calculateScore()
-                    
-                    // Count working channels (estimate based on success rate)
-                    val workingCount = (playlist.channels.size * metrics.successRate).toInt()
+                // Her link için maksimum 2 dakika (120 saniye) timeout
+                val result = withTimeoutOrNull(120_000L) {
+                    try {
+                        // Fetch playlist
+                        val playlist = playlistRepository.fetchPlaylist(url)
+                        
+                        // Test quality
+                        val metrics = qualityTester.testQuality(playlist, sampleSize = 5)
+                        val score = metrics.calculateScore()
+                        
+                        // Count working channels (estimate based on success rate)
+                        val workingCount = (playlist.channels.size * metrics.successRate).toInt()
 
-                    results.add(
                         PlaylistQuality(
                             url = url,
                             endDate = playlist.endDate,
@@ -97,9 +99,17 @@ class CompareViewModel @Inject constructor(
                             qualityScore = score,
                             metrics = metrics
                         )
-                    )
-                } catch (e: Exception) {
-                    // Add failed result
+                    } catch (e: Exception) {
+                        // Test failed
+                        null
+                    }
+                }
+                
+                // Timeout veya hata durumunda başarısız sonuç ekle
+                if (result != null) {
+                    results.add(result)
+                } else {
+                    // Timeout veya hata - başarısız sonuç ekle
                     results.add(
                         PlaylistQuality(
                             url = url,

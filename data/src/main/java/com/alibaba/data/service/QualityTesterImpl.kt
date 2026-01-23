@@ -8,13 +8,17 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import kotlin.random.Random
 
 class QualityTesterImpl @Inject constructor(
     private val okHttpClient: OkHttpClient
 ) : QualityTester {
+
+    private companion object {
+        const val CHANNEL_TOTAL_TIMEOUT_MS = 20_000L
+        const val MAX_DATA_READ_MS = 12_000L
+    }
 
     override suspend fun testQuality(playlist: Playlist, sampleSize: Int): QualityMetrics = withContext(Dispatchers.IO) {
         val channels = playlist.channels
@@ -69,6 +73,21 @@ class QualityTesterImpl @Inject constructor(
     }
 
     private suspend fun testChannel(url: String): ChannelTestResult = withContext(Dispatchers.IO) {
+        // Compare ekranında bir link toplamda 2 dakikayı geçmesin diye kanal testini daha sıkı sınırlıyoruz.
+        val result = withTimeoutOrNull(CHANNEL_TOTAL_TIMEOUT_MS) {
+            testChannelInternal(url)
+        }
+        return@withContext result ?: ChannelTestResult(
+            success = false,
+            openingSpeed = CHANNEL_TOTAL_TIMEOUT_MS,
+            loadingSpeed = CHANNEL_TOTAL_TIMEOUT_MS,
+            hasBuffering = true,
+            bitrate = 0,
+            responseTime = CHANNEL_TOTAL_TIMEOUT_MS
+        )
+    }
+    
+    private suspend fun testChannelInternal(url: String): ChannelTestResult = withContext(Dispatchers.IO) {
         try {
             // Test 1: Initial connection speed (HEAD request)
             val headStartTime = System.currentTimeMillis()
@@ -119,9 +138,13 @@ class QualityTesterImpl @Inject constructor(
                             val buffer = ByteArray(8192)
                             val inputStream = body.byteStream()
                             var totalBytes = 0L
+                            val readStartMs = System.currentTimeMillis()
                             
                             var readBytes = inputStream.read(buffer)
                             while (totalBytes < 131072 && readBytes != -1) { // Read up to 128KB
+                                if ((System.currentTimeMillis() - readStartMs) > MAX_DATA_READ_MS) {
+                                    break
+                                }
                                 totalBytes += readBytes
                                 readBytes = inputStream.read(buffer)
                             }
