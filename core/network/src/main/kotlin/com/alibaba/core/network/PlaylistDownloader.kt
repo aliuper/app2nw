@@ -9,13 +9,28 @@ import java.util.concurrent.TimeUnit
 class PlaylistDownloader(
     private val client: OkHttpClient
 ) {
+    // Hızlı indirme için optimize edilmiş client
+    private val fastClient: OkHttpClient by lazy {
+        client.newBuilder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(10, TimeUnit.SECONDS)
+            .build()
+    }
+
     suspend fun downloadLines(url: String): List<String> = withContext(Dispatchers.IO) {
-        val request = Request.Builder().url(url).get().build()
-        val call = client.newCall(request)
-        call.timeout().timeout(120, TimeUnit.SECONDS)
+        val request = Request.Builder()
+            .url(url)
+            .header("Connection", "keep-alive")
+            .header("Accept-Encoding", "gzip, deflate")
+            .get()
+            .build()
+        
+        val call = fastClient.newCall(request)
+        call.timeout().timeout(45, TimeUnit.SECONDS) // 120 -> 45 saniye
         call.execute().use { response ->
             if (!response.isSuccessful) {
-                throw IllegalStateException("HTTP ${'$'}{response.code}")
+                throw IllegalStateException("HTTP ${response.code}")
             }
             val body = response.body ?: throw IllegalStateException("Empty body")
             val source = body.source()
@@ -39,12 +54,16 @@ class PlaylistDownloader(
     }
 
     suspend fun downloadText(url: String): String = withContext(Dispatchers.IO) {
-        val request = Request.Builder().url(url).get().build()
-        val call = client.newCall(request)
-        call.timeout().timeout(20, TimeUnit.SECONDS)
+        val request = Request.Builder()
+            .url(url)
+            .header("Connection", "keep-alive")
+            .get()
+            .build()
+        val call = fastClient.newCall(request)
+        call.timeout().timeout(15, TimeUnit.SECONDS) // 20 -> 15 saniye
         call.execute().use { response ->
             if (!response.isSuccessful) {
-                throw IllegalStateException("HTTP ${'$'}{response.code}")
+                throw IllegalStateException("HTTP ${response.code}")
             }
             val body = response.body ?: throw IllegalStateException("Empty body")
             body.string()

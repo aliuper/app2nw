@@ -146,6 +146,8 @@ fun AutoRoute(
         onAutoDetectFormatChange = viewModel::setAutoDetectFormat,
         onFormatChange = viewModel::setOutputFormat,
         onTurboModeChange = viewModel::setTurboMode,
+        onParallelModeChange = viewModel::setParallelMode,
+        onParallelCountChange = viewModel::setParallelCount,
         onLimitPerServerChange = viewModel::setLimitPerServer,
         onMaxLinksPerServerChange = viewModel::setMaxLinksPerServer,
         onResumeTest = viewModel::resumeTest,
@@ -202,6 +204,8 @@ fun AutoScreen(
     onAutoDetectFormatChange: (Boolean) -> Unit,
     onFormatChange: (OutputFormat) -> Unit,
     onTurboModeChange: (Boolean) -> Unit,
+    onParallelModeChange: (Boolean) -> Unit,
+    onParallelCountChange: (Int) -> Unit,
     onLimitPerServerChange: (Boolean) -> Unit,
     onMaxLinksPerServerChange: (Int) -> Unit,
     onResumeTest: () -> Unit,
@@ -692,6 +696,79 @@ fun AutoScreen(
                             }
                         }
 
+                        // PARALEL MOD - Eşzamanlı indirme (varsayılan açık)
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = androidx.compose.material3.CardDefaults.cardColors(
+                                containerColor = if (state.parallelMode) {
+                                    MaterialTheme.colorScheme.tertiaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.surface
+                                }
+                            )
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            text = "🚀 PARALEL MOD",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = if (state.parallelMode) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                    androidx.compose.material3.Switch(
+                                        checked = state.parallelMode,
+                                        onCheckedChange = { onParallelModeChange(it) },
+                                        enabled = !state.loading
+                                    )
+                                }
+                                
+                                if (state.parallelMode) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "Aynı anda kaç link indirilsin?",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        listOf(3, 5, 8, 10).forEach { count ->
+                                            androidx.compose.material3.FilterChip(
+                                                selected = state.parallelCount == count,
+                                                onClick = { onParallelCountChange(count) },
+                                                label = { Text("$count") },
+                                                enabled = !state.loading
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "✅ ${state.parallelCount} link aynı anda indirilecek - ${state.parallelCount}x daha hızlı!",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                } else {
+                                    Text(
+                                        text = "Sıralı indirme (yavaş ama stabil)",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
                         // TURBO MOD - Çok sayıda link için hızlı tarama
                         Card(
                             modifier = Modifier.fillMaxWidth(),
