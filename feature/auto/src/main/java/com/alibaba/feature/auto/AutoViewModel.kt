@@ -974,7 +974,7 @@ class AutoViewModel @Inject constructor(
         working: MutableList<String>,
         failing: MutableList<String>,
         countries: Set<String>,
-        settings: com.alibaba.domain.model.Settings,
+        settings: com.alibaba.domain.model.AppSettings,
         mergeIntoSingle: Boolean,
         mergedChannels: ArrayList<Channel>,
         usedGroupNames: MutableMap<String, Int>,
