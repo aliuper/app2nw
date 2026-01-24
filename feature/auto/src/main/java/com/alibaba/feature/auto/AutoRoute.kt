@@ -146,6 +146,8 @@ fun AutoRoute(
         onAutoDetectFormatChange = viewModel::setAutoDetectFormat,
         onFormatChange = viewModel::setOutputFormat,
         onTurboModeChange = viewModel::setTurboMode,
+        onLimitPerServerChange = viewModel::setLimitPerServer,
+        onMaxLinksPerServerChange = viewModel::setMaxLinksPerServer,
         onResumeTest = viewModel::resumeTest,
         onDismissInterrupted = viewModel::dismissInterruptedTest,
         onClearRecoveredLinks = viewModel::clearRecoveredLinks,
@@ -200,6 +202,8 @@ fun AutoScreen(
     onAutoDetectFormatChange: (Boolean) -> Unit,
     onFormatChange: (OutputFormat) -> Unit,
     onTurboModeChange: (Boolean) -> Unit,
+    onLimitPerServerChange: (Boolean) -> Unit,
+    onMaxLinksPerServerChange: (Int) -> Unit,
     onResumeTest: () -> Unit,
     onDismissInterrupted: () -> Unit,
     onClearRecoveredLinks: () -> Unit,
@@ -735,6 +739,82 @@ fun AutoScreen(
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
+                        // Sunucu Başına Limit Kartı
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = androidx.compose.material3.CardDefaults.cardColors(
+                                containerColor = if (state.limitPerServer) {
+                                    MaterialTheme.colorScheme.secondaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.surface
+                                }
+                            )
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Tune,
+                                            contentDescription = null,
+                                            tint = if (state.limitPerServer) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "🎯 Sunucu Başına Limit",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            color = if (state.limitPerServer) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                    androidx.compose.material3.Switch(
+                                        checked = state.limitPerServer,
+                                        onCheckedChange = { onLimitPerServerChange(it) },
+                                        enabled = !state.loading
+                                    )
+                                }
+                                
+                                if (state.limitPerServer) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "Her sunucudan maksimum kaç sağlam link?",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        listOf(1, 2, 3, 5, 10).forEach { count ->
+                                            androidx.compose.material3.FilterChip(
+                                                selected = state.maxLinksPerServer == count,
+                                                onClick = { onMaxLinksPerServerChange(count) },
+                                                label = { Text("$count") },
+                                                enabled = !state.loading
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "✅ Aynı sunucudan ${state.maxLinksPerServer} sağlam link bulunca diğerlerini atlar",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                } else {
+                                    Text(
+                                        text = "Aynı sunucudan çok fazla link varsa kullanışlı",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                         }
                     }

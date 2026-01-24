@@ -26,6 +26,8 @@ data class AutoUiState(
     val outputFormat: OutputFormat = OutputFormat.M3U8,
     val outputDelivery: OutputDelivery = OutputDelivery.FILE,
     val turboMode: Boolean = false, // Turbo mod - hızlı tarama
+    val limitPerServer: Boolean = false, // Sunucu başına limit aktif mi
+    val maxLinksPerServer: Int = 3, // Her sunucudan maksimum kaç sağlam link
     val mergeRenameWarning: String? = null,
     val outputFolderUriString: String? = null,
     val backgroundWorkId: String? = null,

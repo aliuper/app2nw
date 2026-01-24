@@ -307,6 +307,14 @@ class AutoViewModel @Inject constructor(
         _state.update { it.copy(turboMode = enabled) }
     }
 
+    fun setLimitPerServer(enabled: Boolean) {
+        _state.update { it.copy(limitPerServer = enabled) }
+    }
+
+    fun setMaxLinksPerServer(count: Int) {
+        _state.update { it.copy(maxLinksPerServer = count.coerceIn(1, 100)) }
+    }
+
     fun setOutputFolder(uriString: String?) {
         _state.update { it.copy(outputFolderUriString = uriString) }
     }
@@ -451,12 +459,17 @@ class AutoViewModel @Inject constructor(
             val chosenOutputFormat = state.value.outputFormat
             val outputDelivery = settings.outputDelivery
             val turboMode = state.value.turboMode
+            val limitPerServer = state.value.limitPerServer
+            val maxLinksPerServer = state.value.maxLinksPerServer
 
             val mergedChannels = ArrayList<Channel>(4_096) // Reduced from 16k to prevent OOM
             var mergedEndDate: String? = null
 
             val usedGroupNames = linkedMapOf<String, Int>()
             val renameSamples = ArrayList<String>(16)
+            
+            // Sunucu başına sağlam link sayacı
+            val serverWorkingCount = mutableMapOf<String, Int>()
 
             // Limit initial capacity to prevent memory bloat
             // Resume modunda mevcut linkleri koru
@@ -468,6 +481,14 @@ class AutoViewModel @Inject constructor(
             }
             val savedNames = ArrayList<String>(minOf(urls.size + 1, 200))
             val savedUris = ArrayList<String>(minOf(urls.size + 1, 200))
+            
+            // Resume modunda mevcut working linklerden sunucu sayaçlarını başlat
+            if (resumeMode && limitPerServer) {
+                existingWorking.forEach { workingUrl ->
+                    val server = extractServerFromUrl(workingUrl)
+                    serverWorkingCount[server] = (serverWorkingCount[server] ?: 0) + 1
+                }
+            }
 
             for ((loopIndex, url) in urls.withIndex()) {
                 yield() // Prevent ANR by allowing other coroutines to run
@@ -475,6 +496,26 @@ class AutoViewModel @Inject constructor(
                 // URL'nin extractedUrls içindeki GERÇEK index'ini bul
                 val realIndex = state.value.extractedUrls.indexOfFirst { it.url == url }
                 if (realIndex == -1) continue // URL bulunamadıysa atla
+                
+                // Sunucu başına limit kontrolü
+                if (limitPerServer) {
+                    val server = extractServerFromUrl(url)
+                    val currentCount = serverWorkingCount[server] ?: 0
+                    if (currentCount >= maxLinksPerServer) {
+                        // Bu sunucudan yeterli link bulundu, atla
+                        _state.update { s ->
+                            val items = s.extractedUrls.toMutableList()
+                            if (realIndex in items.indices) {
+                                items[realIndex] = items[realIndex].copy(
+                                    status = "⏭️ Atlandı (sunucu limiti: $maxLinksPerServer)",
+                                    success = null
+                                )
+                            }
+                            s.copy(extractedUrls = items)
+                        }
+                        continue
+                    }
+                }
                 
                 val urlStartMs = SystemClock.elapsedRealtime()
                 val totalUrls = state.value.extractedUrls.size
@@ -565,6 +606,12 @@ class AutoViewModel @Inject constructor(
                     }
 
                     working += url
+                    
+                    // Sunucu başına limit için sayacı artır
+                    if (limitPerServer) {
+                        val server = extractServerFromUrl(url)
+                        serverWorkingCount[server] = (serverWorkingCount[server] ?: 0) + 1
+                    }
 
                     if (mergeIntoSingle) {
                         val renamed = mergeWithBackupNames(
@@ -855,6 +902,20 @@ class AutoViewModel @Inject constructor(
             val originalGroup = c.group ?: "Ungrouped"
             val mapped = groupMapping[originalGroup] ?: originalGroup
             if (mapped == originalGroup) c else c.copy(group = mapped)
+        }
+    }
+
+    private fun extractServerFromUrl(url: String): String {
+        return try {
+            val uri = java.net.URI(url)
+            val host = uri.host ?: ""
+            val port = if (uri.port > 0) uri.port else 80
+            "$host:$port"
+        } catch (e: Exception) {
+            // Fallback: basit regex ile sunucu çıkar
+            val regex = Regex("https?://([^/:]+)(:\\d+)?")
+            val match = regex.find(url)
+            match?.groupValues?.get(1) ?: url.take(50)
         }
     }
 
