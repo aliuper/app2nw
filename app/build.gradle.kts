@@ -66,6 +66,7 @@ dependencies {
     implementation(project(":feature:compare"))
     implementation(project(":feature:panelscan"))
     implementation(project(":feature:exploittest"))
+    implementation(project(":feature:expirycheck"))
 
     implementation(project(":data"))
     implementation(project(":domain"))

@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Scanner
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,6 +40,7 @@ fun HomeScreen(
     onCompareClick: () -> Unit = {},
     onPanelScanClick: () -> Unit = {},
     onExploitTestClick: () -> Unit = {},
+    onExpiryCheckClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Scaffold(
@@ -126,6 +128,15 @@ fun HomeScreen(
                 Icon(imageVector = Icons.Filled.Security, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(text = "🔓 Panel Güvenlik Testi")
+            }
+
+            Button(
+                onClick = onExpiryCheckClick,
+                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+            ) {
+                Icon(imageVector = Icons.Filled.DateRange, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = "📅 Bitiş Tarihi Kontrolü")
             }
         }
     }
