@@ -27,7 +27,7 @@ data class AutoUiState(
     val outputDelivery: OutputDelivery = OutputDelivery.FILE,
     val turboMode: Boolean = false, // Turbo mod - hızlı tarama
     val parallelMode: Boolean = true, // Paralel indirme modu (varsayılan açık)
-    val parallelCount: Int = 5, // Aynı anda kaç link test edilsin
+    val parallelCount: Int = 3, // Aynı anda kaç link test edilsin (3 daha stabil)
     val limitPerServer: Boolean = false, // Sunucu başına limit aktif mi
     val maxLinksPerServer: Int = 3, // Her sunucudan maksimum kaç sağlam link
     val mergeRenameWarning: String? = null,

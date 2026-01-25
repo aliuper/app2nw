@@ -421,6 +421,19 @@ class AutoViewModel @Inject constructor(
             }
 
             StreamTestService.start(appContext)
+            
+            // Foreground Service başlat (arka planda çökmeyi önle)
+            try {
+                val serviceIntent = android.content.Intent(appContext, Class.forName("com.alibaba.service.AutoTestForegroundService"))
+                serviceIntent.action = "com.alibaba.action.START_AUTO_TEST"
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    appContext.startForegroundService(serviceIntent)
+                } else {
+                    appContext.startService(serviceIntent)
+                }
+            } catch (e: Exception) {
+                // Service bulunamazsa devam et
+            }
 
             progressStartMs = SystemClock.elapsedRealtime()
             completedUrlDurationsMs.clear()
@@ -858,8 +871,17 @@ class AutoViewModel @Inject constructor(
             // Test başarıyla tamamlandı - kaydedilmiş state'i temizle
             clearSavedState()
 
-            // Stop service and show completion notification
+            // Stop services
             StreamTestService.stop(appContext)
+            
+            // Foreground Service durdur
+            try {
+                val serviceIntent = android.content.Intent(appContext, Class.forName("com.alibaba.service.AutoTestForegroundService"))
+                serviceIntent.action = "com.alibaba.action.STOP_AUTO_TEST"
+                appContext.startService(serviceIntent)
+            } catch (e: Exception) {
+                // Service bulunamazsa devam et
+            }
         }
     }
 
