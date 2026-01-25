@@ -509,40 +509,58 @@ class AutoViewModel @Inject constructor(
             val semaphore = Semaphore(if (parallelMode) parallelCount else 1)
             val processedCount = java.util.concurrent.atomic.AtomicInteger(0)
             
-            // PARALEL MOD: Linkleri batch'ler halinde paralel işle
+            // PARALEL MOD: Linkleri BATCH'ler halinde paralel işle (bellek güvenli)
             if (parallelMode && urls.size > 1) {
-                setProgress(percent = 0, step = "🚀 Paralel mod: $parallelCount eşzamanlı indirme")
+                setProgress(percent = 0, step = "🚀 Paralel mod: $parallelCount eşzamanlı")
                 
-                coroutineScope {
-                    urls.map { url ->
-                        async(Dispatchers.IO) {
-                            semaphore.withPermit {
-                                processUrlParallel(
-                                    url = url,
-                                    turboMode = turboMode,
-                                    limitPerServer = limitPerServer,
-                                    maxLinksPerServer = maxLinksPerServer,
-                                    serverWorkingCount = serverWorkingCount,
-                                    working = working,
-                                    failing = failing,
-                                    countries = countries,
-                                    settings = settings,
-                                    mergeIntoSingle = mergeIntoSingle,
-                                    mergedChannels = mergedChannels,
-                                    usedGroupNames = usedGroupNames,
-                                    renameSamples = renameSamples,
-                                    outputDelivery = outputDelivery,
-                                    folderUriString = folderUriString,
-                                    autoDetectFormat = autoDetectFormat,
-                                    chosenOutputFormat = chosenOutputFormat,
-                                    savedNames = savedNames,
-                                    savedUris = savedUris,
-                                    processedCount = processedCount,
-                                    totalUrls = urls.size
-                                )
+                // URL'leri batch'lere böl (bellek güvenliği için)
+                val batchSize = parallelCount * 2 // Her batch'te 2x paralel sayısı kadar URL
+                val batches = urls.chunked(batchSize)
+                
+                for ((batchIndex, batch) in batches.withIndex()) {
+                    yield() // ANR önleme
+                    
+                    // Her batch'i paralel işle
+                    coroutineScope {
+                        batch.map { url ->
+                            async(Dispatchers.IO) {
+                                semaphore.withPermit {
+                                    processUrlParallel(
+                                        url = url,
+                                        turboMode = turboMode,
+                                        limitPerServer = limitPerServer,
+                                        maxLinksPerServer = maxLinksPerServer,
+                                        serverWorkingCount = serverWorkingCount,
+                                        working = working,
+                                        failing = failing,
+                                        countries = countries,
+                                        settings = settings,
+                                        mergeIntoSingle = mergeIntoSingle,
+                                        mergedChannels = mergedChannels,
+                                        usedGroupNames = usedGroupNames,
+                                        renameSamples = renameSamples,
+                                        outputDelivery = outputDelivery,
+                                        folderUriString = folderUriString,
+                                        autoDetectFormat = autoDetectFormat,
+                                        chosenOutputFormat = chosenOutputFormat,
+                                        savedNames = savedNames,
+                                        savedUris = savedUris,
+                                        processedCount = processedCount,
+                                        totalUrls = urls.size
+                                    )
+                                }
                             }
-                        }
-                    }.awaitAll()
+                        }.awaitAll()
+                    }
+                    
+                    // Her batch sonrası state kaydet (kaldığı yerden devam için)
+                    saveCurrentState()
+                    
+                    // Bellek temizliği
+                    if (batchIndex % 3 == 2) {
+                        @Suppress("ExplicitGarbageCollectionCall")
+                        System.gc()
+                    }
                 }
             } else {
                 // SIRASAL MOD: Eski davranış
@@ -964,6 +982,23 @@ class AutoViewModel @Inject constructor(
             match?.groupValues?.get(1) ?: url.take(50)
         }
     }
+    
+    // Akıllı sunucu erişilebilirlik kontrolü (HEAD request - çok hızlı)
+    private suspend fun quickServerCheck(url: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val uri = java.net.URI(url)
+            val host = uri.host ?: return@withContext false
+            val port = if (uri.port > 0) uri.port else if (uri.scheme == "https") 443 else 80
+            
+            // Socket ile hızlı bağlantı testi (3 saniye timeout)
+            val socket = java.net.Socket()
+            socket.connect(java.net.InetSocketAddress(host, port), 3000)
+            socket.close()
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
 
     private suspend fun processUrlParallel(
         url: String,
@@ -1021,6 +1056,20 @@ class AutoViewModel @Inject constructor(
         }
         
         try {
+            // AKILLI PRE-CHECK: Sunucu erişilebilir mi? (HEAD request ile hızlı kontrol)
+            val serverReachable = quickServerCheck(url)
+            if (!serverReachable) {
+                failing.add(url)
+                _state.update { s ->
+                    val items = s.extractedUrls.toMutableList()
+                    if (realIndex in items.indices) {
+                        items[realIndex] = items[realIndex].copy(status = "🔌 Sunucu erişilemez", success = false)
+                    }
+                    s.copy(extractedUrls = items, failingUrls = failing.toList())
+                }
+                return
+            }
+            
             // Playlist indir
             val playlist = playlistRepository.fetchPlaylist(url)
             
@@ -1099,6 +1148,7 @@ class AutoViewModel @Inject constructor(
                     val errorMsg = when {
                         e.message?.contains("timeout", ignoreCase = true) == true -> "⏱️ Zaman aşımı"
                         e.message?.contains("connect", ignoreCase = true) == true -> "🔌 Bağlantı hatası"
+                        e.message?.contains("OutOfMemory", ignoreCase = true) == true -> "💾 Bellek yetersiz"
                         else -> "❌ Hata"
                     }
                     items[realIndex] = items[realIndex].copy(status = errorMsg, success = false)
@@ -1111,7 +1161,9 @@ class AutoViewModel @Inject constructor(
         val processed = processedCount.incrementAndGet()
         val percent = ((processed * 100) / totalUrls).coerceIn(0, 99)
         val turboLabel = if (turboMode) "⚡" else "🚀"
-        setProgress(percent = percent, step = "$turboLabel Paralel: $processed/$totalUrls")
+        val workingCount = working.size
+        val failingCount = failing.size
+        setProgress(percent = percent, step = "$turboLabel $processed/$totalUrls | ✅$workingCount ❌$failingCount")
     }
 
     private fun setProgress(percent: Int, step: String?) {
