@@ -24,12 +24,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -518,286 +513,227 @@ class AutoViewModel @Inject constructor(
                 }
             }
             
-            // Paralel işleme için semaphore
-            val semaphore = Semaphore(if (parallelMode) parallelCount else 1)
-            val processedCount = java.util.concurrent.atomic.AtomicInteger(0)
-            
-            // PARALEL MOD: Linkleri BATCH'ler halinde paralel işle (bellek güvenli)
-            if (parallelMode && urls.size > 1) {
-                setProgress(percent = 0, step = "🚀 Paralel mod: $parallelCount eşzamanlı")
+            // SIRASAL MOD: Stabil ve hızlı (paralel mod kaldırıldı - çökme sorunu)
+            for ((loopIndex, url) in urls.withIndex()) {
+                yield() // Prevent ANR by allowing other coroutines to run
                 
-                // URL'leri batch'lere böl (bellek güvenliği için)
-                val batchSize = parallelCount * 2 // Her batch'te 2x paralel sayısı kadar URL
-                val batches = urls.chunked(batchSize)
+                // URL'nin extractedUrls içindeki GERÇEK index'ini bul
+                val realIndex = state.value.extractedUrls.indexOfFirst { it.url == url }
+                if (realIndex == -1) continue // URL bulunamadıysa atla
                 
-                for ((batchIndex, batch) in batches.withIndex()) {
-                    yield() // ANR önleme
-                    
-                    // Her batch'i paralel işle
-                    coroutineScope {
-                        batch.map { url ->
-                            async(Dispatchers.IO) {
-                                semaphore.withPermit {
-                                    processUrlParallel(
-                                        url = url,
-                                        turboMode = turboMode,
-                                        limitPerServer = limitPerServer,
-                                        maxLinksPerServer = maxLinksPerServer,
-                                        serverWorkingCount = serverWorkingCount,
-                                        working = working,
-                                        failing = failing,
-                                        countries = countries,
-                                        settings = settings,
-                                        mergeIntoSingle = mergeIntoSingle,
-                                        mergedChannels = mergedChannels,
-                                        usedGroupNames = usedGroupNames,
-                                        renameSamples = renameSamples,
-                                        outputDelivery = outputDelivery,
-                                        folderUriString = folderUriString,
-                                        autoDetectFormat = autoDetectFormat,
-                                        chosenOutputFormat = chosenOutputFormat,
-                                        savedNames = savedNames,
-                                        savedUris = savedUris,
-                                        processedCount = processedCount,
-                                        totalUrls = urls.size
-                                    )
-                                }
+                // Sunucu başına limit kontrolü
+                if (limitPerServer) {
+                    val server = extractServerFromUrl(url)
+                    val currentCount = serverWorkingCount[server] ?: 0
+                    if (currentCount >= maxLinksPerServer) {
+                        // Bu sunucudan yeterli link bulundu, atla
+                        _state.update { s ->
+                            val items = s.extractedUrls.toMutableList()
+                            if (realIndex in items.indices) {
+                                items[realIndex] = items[realIndex].copy(
+                                    status = "⏭️ Atlandı (sunucu limiti: $maxLinksPerServer)",
+                                    success = null
+                                )
                             }
-                        }.awaitAll()
-                    }
-                    
-                    // Her batch sonrası state kaydet (kaldığı yerden devam için)
-                    saveCurrentState()
-                    
-                    // Bellek temizliği
-                    if (batchIndex % 3 == 2) {
-                        @Suppress("ExplicitGarbageCollectionCall")
-                        System.gc()
+                            s.copy(extractedUrls = items)
+                        }
+                        continue
                     }
                 }
-            } else {
-                // SIRASAL MOD: Eski davranış
-                for ((loopIndex, url) in urls.withIndex()) {
-                    yield() // Prevent ANR by allowing other coroutines to run
-                    
-                    // URL'nin extractedUrls içindeki GERÇEK index'ini bul
-                    val realIndex = state.value.extractedUrls.indexOfFirst { it.url == url }
-                    if (realIndex == -1) continue // URL bulunamadıysa atla
-                    
-                    // Sunucu başına limit kontrolü
-                    if (limitPerServer) {
-                        val server = extractServerFromUrl(url)
-                        val currentCount = serverWorkingCount[server] ?: 0
-                        if (currentCount >= maxLinksPerServer) {
-                            // Bu sunucudan yeterli link bulundu, atla
-                            _state.update { s ->
-                                val items = s.extractedUrls.toMutableList()
-                                if (realIndex in items.indices) {
-                                    items[realIndex] = items[realIndex].copy(
-                                        status = "⏭️ Atlandı (sunucu limiti: $maxLinksPerServer)",
-                                        success = null
-                                    )
-                                }
-                                s.copy(extractedUrls = items)
-                            }
-                            continue
-                        }
+                
+                val urlStartMs = SystemClock.elapsedRealtime()
+                val totalUrls = state.value.extractedUrls.size
+                val testedSoFar = state.value.extractedUrls.count { it.success != null }
+                val header = "${testedSoFar + 1}/${totalUrls}"
+                val basePercent = (((testedSoFar) * 100) / maxOf(1, totalUrls)).coerceIn(0, 99)
+                val turboLabel = if (turboMode) "⚡ TURBO - " else ""
+                setProgress(percent = basePercent, step = "$turboLabel$header - İndiriliyor")
+                _state.update { s ->
+                    val items = s.extractedUrls.toMutableList()
+                    if (realIndex in items.indices) {
+                        items[realIndex] = items[realIndex].copy(status = "İndiriliyor", success = null, testedStreams = 0)
                     }
-                    
-                    val urlStartMs = SystemClock.elapsedRealtime()
-                    val totalUrls = state.value.extractedUrls.size
-                    val testedSoFar = state.value.extractedUrls.count { it.success != null }
-                    val header = "${testedSoFar + 1}/${totalUrls}"
-                    val basePercent = (((testedSoFar) * 100) / maxOf(1, totalUrls)).coerceIn(0, 99)
-                    val turboLabel = if (turboMode) "⚡ TURBO - " else ""
-                    setProgress(percent = basePercent, step = "$turboLabel$header - İndiriliyor")
+                    s.copy(extractedUrls = items)
+                }
+
+                var playlist: Playlist? = null
+                try {
+                    playlist = playlistRepository.fetchPlaylist(url)
+
+                    setProgress(percent = (basePercent + 3).coerceAtMost(99), step = "$turboLabel$header - Stream testi")
                     _state.update { s ->
                         val items = s.extractedUrls.toMutableList()
                         if (realIndex in items.indices) {
-                            items[realIndex] = items[realIndex].copy(status = "İndiriliyor", success = null, testedStreams = 0)
+                            items[realIndex] = items[realIndex].copy(status = if (turboMode) "⚡ Hızlı test" else "Stream testi", success = null)
                         }
                         s.copy(extractedUrls = items)
                     }
 
-                    var playlist: Playlist? = null
-                    try {
-                        playlist = playlistRepository.fetchPlaylist(url)
+                    val (ok, testedCount, totalCount) = runStreamTestDetailed(playlist, turboMode) { tested, total ->
+                        val now = SystemClock.elapsedRealtime()
+                        val shouldUpdate = tested >= total || (now - lastStreamUiUpdateMs) >= 500
+                        if (shouldUpdate) {
+                            lastStreamUiUpdateMs = now
+                            _state.update { s ->
+                                val items = s.extractedUrls.toMutableList()
+                                if (realIndex in items.indices) {
+                                    items[realIndex] = items[realIndex].copy(
+                                        status = "Test ${tested}/${total}",
+                                        success = null,
+                                        testedStreams = tested
+                                    )
+                                }
+                                s.copy(extractedUrls = items)
+                            }
+                        }
+                    }
 
-                        setProgress(percent = (basePercent + 3).coerceAtMost(99), step = "$turboLabel$header - Stream testi")
+                    if (!ok) {
+                        failing += url
+                        completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
                         _state.update { s ->
                             val items = s.extractedUrls.toMutableList()
                             if (realIndex in items.indices) {
-                                items[realIndex] = items[realIndex].copy(status = if (turboMode) "⚡ Hızlı test" else "Stream testi", success = null)
+                                items[realIndex] = items[realIndex].copy(status = "Stream testi başarısız", success = false, testedStreams = testedCount)
                             }
-                            s.copy(extractedUrls = items)
+                            s.copy(extractedUrls = items, failingUrls = failing.toList())
                         }
+                        saveCurrentState()
+                        continue
+                    }
 
-                        val (ok, testedCount, totalCount) = runStreamTestDetailed(playlist, turboMode) { tested, total ->
-                            val now = SystemClock.elapsedRealtime()
-                            val shouldUpdate = tested >= total || (now - lastStreamUiUpdateMs) >= 500
-                            if (shouldUpdate) {
-                                lastStreamUiUpdateMs = now
-                                _state.update { s ->
-                                    val items = s.extractedUrls.toMutableList()
-                                    if (realIndex in items.indices) {
-                                        items[realIndex] = items[realIndex].copy(
-                                            status = "Test ${tested}/${total}",
-                                            success = null,
-                                            testedStreams = tested
-                                        )
-                                    }
-                                    s.copy(extractedUrls = items)
-                                }
-                            }
-                        }
-
-                        if (!ok) {
+                    val filtered = if (settings.enableCountryFiltering) {
+                        val p = filterPlaylistByCountries(playlist, countries)
+                        if (p.channels.isEmpty()) {
                             failing += url
                             completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
                             _state.update { s ->
                                 val items = s.extractedUrls.toMutableList()
                                 if (realIndex in items.indices) {
-                                    items[realIndex] = items[realIndex].copy(status = "Stream testi başarısız", success = false, testedStreams = testedCount)
+                                    items[realIndex] = items[realIndex].copy(status = "Seçilen ülke(ler) için kanal yok", success = false, testedStreams = totalCount)
                                 }
                                 s.copy(extractedUrls = items, failingUrls = failing.toList())
                             }
                             saveCurrentState()
                             continue
                         }
+                        p
+                    } else {
+                        playlist
+                    }
 
-                        val filtered = if (settings.enableCountryFiltering) {
-                            val p = filterPlaylistByCountries(playlist, countries)
-                            if (p.channels.isEmpty()) {
-                                failing += url
-                                completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
-                                _state.update { s ->
-                                    val items = s.extractedUrls.toMutableList()
-                                    if (realIndex in items.indices) {
-                                        items[realIndex] = items[realIndex].copy(status = "Seçilen ülke(ler) için kanal yok", success = false, testedStreams = totalCount)
-                                    }
-                                    s.copy(extractedUrls = items, failingUrls = failing.toList())
-                                }
-                                saveCurrentState()
-                                continue
+                    working += url
+                    
+                    // Sunucu başına limit için sayacı artır
+                    if (limitPerServer) {
+                        val server = extractServerFromUrl(url)
+                        serverWorkingCount[server] = (serverWorkingCount[server] ?: 0) + 1
+                    }
+
+                    if (mergeIntoSingle) {
+                        val renamed = mergeWithBackupNames(
+                            channels = filtered.channels,
+                            usedGroupNames = usedGroupNames,
+                            renameSamples = renameSamples
+                        )
+                        mergedChannels += renamed
+                        mergedEndDate = mergedEndDate ?: filtered.endDate
+                        _state.update { s ->
+                            val items = s.extractedUrls.toMutableList()
+                            if (realIndex in items.indices) {
+                                items[realIndex] = items[realIndex].copy(status = "Birleştirildi", success = true, testedStreams = totalCount)
                             }
-                            p
-                        } else {
-                            playlist
+                            s.copy(extractedUrls = items, workingUrls = working.toList())
                         }
+                        completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
+                        saveCurrentState()
+                    } else {
+                        if (outputDelivery == OutputDelivery.FILE) {
+                            setProgress(percent = (basePercent + 6).coerceAtMost(99), step = "$header - Kaydediliyor")
+                            val format = if (autoDetectFormat) OutputFormatDetector.detect(filtered) else chosenOutputFormat
+                            val content = withContext(Dispatchers.Default) {
+                                val groups = filtered.channels.map { it.group ?: "Ungrouped" }.toSet()
+                                PlaylistTextFormatter.format(filtered, groups, format)
+                            }
 
-                        working += url
-                        
-                        // Sunucu başına limit için sayacı artır
-                        if (limitPerServer) {
-                            val server = extractServerFromUrl(url)
-                            serverWorkingCount[server] = (serverWorkingCount[server] ?: 0) + 1
-                        }
+                            val saved = if (folderUriString.isNullOrBlank()) {
+                                outputSaver.saveToDownloads(
+                                    sourceUrl = url,
+                                    format = format,
+                                    content = content,
+                                    maybeEndDate = filtered.endDate
+                                )
+                            } else {
+                                outputSaver.saveToFolder(
+                                    folderUriString = folderUriString,
+                                    sourceUrl = url,
+                                    format = format,
+                                    content = content,
+                                    maybeEndDate = filtered.endDate
+                                )
+                            }
 
-                        if (mergeIntoSingle) {
-                            val renamed = mergeWithBackupNames(
-                                channels = filtered.channels,
-                                usedGroupNames = usedGroupNames,
-                                renameSamples = renameSamples
-                            )
-                            mergedChannels += renamed
-                            mergedEndDate = mergedEndDate ?: filtered.endDate
+                            savedNames += saved.displayName
+                            savedUris += saved.uriString
+
                             _state.update { s ->
                                 val items = s.extractedUrls.toMutableList()
                                 if (realIndex in items.indices) {
-                                    items[realIndex] = items[realIndex].copy(status = "Birleştirildi", success = true, testedStreams = totalCount)
+                                    items[realIndex] = items[realIndex].copy(status = "Kaydedildi", success = true, testedStreams = totalCount)
                                 }
                                 s.copy(extractedUrls = items, workingUrls = working.toList())
                             }
-                            completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
                             saveCurrentState()
                         } else {
-                            if (outputDelivery == OutputDelivery.FILE) {
-                                setProgress(percent = (basePercent + 6).coerceAtMost(99), step = "$header - Kaydediliyor")
-                                val format = if (autoDetectFormat) OutputFormatDetector.detect(filtered) else chosenOutputFormat
-                                val content = withContext(Dispatchers.Default) {
-                                    val groups = filtered.channels.map { it.group ?: "Ungrouped" }.toSet()
-                                    PlaylistTextFormatter.format(filtered, groups, format)
+                            _state.update { s ->
+                                val items = s.extractedUrls.toMutableList()
+                                if (realIndex in items.indices) {
+                                    items[realIndex] = items[realIndex].copy(status = "Başarılı", success = true, testedStreams = totalCount)
                                 }
-
-                                val saved = if (folderUriString.isNullOrBlank()) {
-                                    outputSaver.saveToDownloads(
-                                        sourceUrl = url,
-                                        format = format,
-                                        content = content,
-                                        maybeEndDate = filtered.endDate
-                                    )
-                                } else {
-                                    outputSaver.saveToFolder(
-                                        folderUriString = folderUriString,
-                                        sourceUrl = url,
-                                        format = format,
-                                        content = content,
-                                        maybeEndDate = filtered.endDate
-                                    )
-                                }
-
-                                savedNames += saved.displayName
-                                savedUris += saved.uriString
-
-                                _state.update { s ->
-                                    val items = s.extractedUrls.toMutableList()
-                                    if (realIndex in items.indices) {
-                                        items[realIndex] = items[realIndex].copy(status = "Kaydedildi", success = true, testedStreams = totalCount)
-                                    }
-                                    s.copy(extractedUrls = items, workingUrls = working.toList())
-                                }
-                                saveCurrentState()
-                            } else {
-                                _state.update { s ->
-                                    val items = s.extractedUrls.toMutableList()
-                                    if (realIndex in items.indices) {
-                                        items[realIndex] = items[realIndex].copy(status = "Başarılı", success = true, testedStreams = totalCount)
-                                    }
-                                    s.copy(extractedUrls = items, workingUrls = working.toList())
-                                }
-                                saveCurrentState()
+                                s.copy(extractedUrls = items, workingUrls = working.toList())
                             }
-                            completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
+                            saveCurrentState()
                         }
-                    } catch (e: OutOfMemoryError) {
-                        // Critical: Out of memory - force cleanup
-                        failing += url
                         completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
-                        _state.update { s ->
-                            val items = s.extractedUrls.toMutableList()
-                            if (realIndex in items.indices) {
-                                items[realIndex] = items[realIndex].copy(status = "Bellek yetersiz - temizleniyor", success = false)
-                            }
-                            s.copy(extractedUrls = items, failingUrls = failing.toList())
-                        }
-                        saveCurrentState()
-                        
-                        // Aggressive memory cleanup
-                        mergedChannels.clear()
-                        mergedChannels.trimToSize()
-                        usedGroupNames.clear()
-                        renameSamples.clear()
-                        @Suppress("ExplicitGarbageCollectionCall")
-                        System.gc()
-                        delay(3000)
-                        continue
-                    } catch (e: Exception) {
-                        failing += url
-                        completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
-                        _state.update { s ->
-                            val items = s.extractedUrls.toMutableList()
-                            if (realIndex in items.indices) {
-                                items[realIndex] = items[realIndex].copy(status = "Hata: ${e.message}", success = false)
-                            }
-                            s.copy(extractedUrls = items, failingUrls = failing.toList())
-                        }
-                        saveCurrentState()
-                        continue
-                    } finally {
-                        playlist = null
-                        @Suppress("ExplicitGarbageCollectionCall")
-                        System.gc()
                     }
+                } catch (e: OutOfMemoryError) {
+                    // Critical: Out of memory - force cleanup
+                    failing += url
+                    completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
+                    _state.update { s ->
+                        val items = s.extractedUrls.toMutableList()
+                        if (realIndex in items.indices) {
+                            items[realIndex] = items[realIndex].copy(status = "Bellek yetersiz - temizleniyor", success = false)
+                        }
+                        s.copy(extractedUrls = items, failingUrls = failing.toList())
+                    }
+                    saveCurrentState()
+                    
+                    // Aggressive memory cleanup
+                    mergedChannels.clear()
+                    mergedChannels.trimToSize()
+                    usedGroupNames.clear()
+                    renameSamples.clear()
+                    @Suppress("ExplicitGarbageCollectionCall")
+                    System.gc()
+                    delay(3000)
+                    continue
+                } catch (e: Exception) {
+                    failing += url
+                    completedUrlDurationsMs += (SystemClock.elapsedRealtime() - urlStartMs)
+                    _state.update { s ->
+                        val items = s.extractedUrls.toMutableList()
+                        if (realIndex in items.indices) {
+                            items[realIndex] = items[realIndex].copy(status = "Hata: ${e.message}", success = false)
+                        }
+                        s.copy(extractedUrls = items, failingUrls = failing.toList())
+                    }
+                    saveCurrentState()
+                    continue
+                } finally {
+                    playlist = null
+                    @Suppress("ExplicitGarbageCollectionCall")
+                    System.gc()
                 }
             }
 
@@ -1020,175 +956,6 @@ class AutoViewModel @Inject constructor(
         } catch (e: Exception) {
             false
         }
-    }
-
-    private suspend fun processUrlParallel(
-        url: String,
-        turboMode: Boolean,
-        limitPerServer: Boolean,
-        maxLinksPerServer: Int,
-        serverWorkingCount: java.util.concurrent.ConcurrentHashMap<String, Int>,
-        working: MutableList<String>,
-        failing: MutableList<String>,
-        countries: Set<String>,
-        settings: com.alibaba.domain.model.AppSettings,
-        mergeIntoSingle: Boolean,
-        mergedChannels: ArrayList<Channel>,
-        usedGroupNames: MutableMap<String, Int>,
-        renameSamples: MutableList<String>,
-        outputDelivery: OutputDelivery,
-        folderUriString: String?,
-        autoDetectFormat: Boolean,
-        chosenOutputFormat: OutputFormat,
-        savedNames: MutableList<String>,
-        savedUris: MutableList<String>,
-        processedCount: java.util.concurrent.atomic.AtomicInteger,
-        totalUrls: Int
-    ) {
-        val realIndex = state.value.extractedUrls.indexOfFirst { it.url == url }
-        if (realIndex == -1) return
-        
-        // Sunucu başına limit kontrolü
-        if (limitPerServer) {
-            val server = extractServerFromUrl(url)
-            val currentCount = serverWorkingCount[server] ?: 0
-            if (currentCount >= maxLinksPerServer) {
-                _state.update { s ->
-                    val items = s.extractedUrls.toMutableList()
-                    if (realIndex in items.indices) {
-                        items[realIndex] = items[realIndex].copy(
-                            status = "⏭️ Atlandı (sunucu limiti)",
-                            success = null
-                        )
-                    }
-                    s.copy(extractedUrls = items)
-                }
-                processedCount.incrementAndGet()
-                return
-            }
-        }
-        
-        // UI güncelle - indiriliyor
-        _state.update { s ->
-            val items = s.extractedUrls.toMutableList()
-            if (realIndex in items.indices) {
-                items[realIndex] = items[realIndex].copy(status = "⬇️ İndiriliyor...", success = null, testedStreams = 0)
-            }
-            s.copy(extractedUrls = items)
-        }
-        
-        try {
-            // AKILLI PRE-CHECK: Sunucu erişilebilir mi? (HEAD request ile hızlı kontrol)
-            val serverReachable = quickServerCheck(url)
-            if (!serverReachable) {
-                failing.add(url)
-                _state.update { s ->
-                    val items = s.extractedUrls.toMutableList()
-                    if (realIndex in items.indices) {
-                        items[realIndex] = items[realIndex].copy(status = "🔌 Sunucu erişilemez", success = false)
-                    }
-                    s.copy(extractedUrls = items, failingUrls = failing.toList())
-                }
-                return
-            }
-            
-            // Playlist indir
-            val playlist = playlistRepository.fetchPlaylist(url)
-            
-            // UI güncelle - test ediliyor
-            _state.update { s ->
-                val items = s.extractedUrls.toMutableList()
-                if (realIndex in items.indices) {
-                    items[realIndex] = items[realIndex].copy(status = "🔍 Test ediliyor...", success = null)
-                }
-                s.copy(extractedUrls = items)
-            }
-            
-            // Stream testi
-            val (ok, testedCount, totalCount) = runStreamTestDetailed(playlist, turboMode) { _, _ -> }
-            
-            if (!ok) {
-                failing.add(url)
-                _state.update { s ->
-                    val items = s.extractedUrls.toMutableList()
-                    if (realIndex in items.indices) {
-                        items[realIndex] = items[realIndex].copy(status = "❌ Stream başarısız", success = false, testedStreams = testedCount)
-                    }
-                    s.copy(extractedUrls = items, failingUrls = failing.toList())
-                }
-            } else {
-                // Ülke filtresi
-                val filtered = if (settings.enableCountryFiltering) {
-                    filterPlaylistByCountries(playlist, countries)
-                } else {
-                    playlist
-                }
-                
-                if (settings.enableCountryFiltering && filtered.channels.isEmpty()) {
-                    failing.add(url)
-                    _state.update { s ->
-                        val items = s.extractedUrls.toMutableList()
-                        if (realIndex in items.indices) {
-                            items[realIndex] = items[realIndex].copy(status = "❌ Ülke filtresi", success = false, testedStreams = totalCount)
-                        }
-                        s.copy(extractedUrls = items, failingUrls = failing.toList())
-                    }
-                } else {
-                    // Başarılı!
-                    working.add(url)
-                    
-                    // Sunucu sayacını artır
-                    if (limitPerServer) {
-                        val server = extractServerFromUrl(url)
-                        serverWorkingCount.compute(server) { _, v -> (v ?: 0) + 1 }
-                    }
-                    
-                    // Merge veya kaydet
-                    if (mergeIntoSingle) {
-                        synchronized(mergedChannels) {
-                            synchronized(usedGroupNames) {
-                                val renamed = mergeWithBackupNames(filtered.channels, usedGroupNames, renameSamples)
-                                mergedChannels.addAll(renamed)
-                            }
-                        }
-                    }
-                    
-                    _state.update { s ->
-                        val items = s.extractedUrls.toMutableList()
-                        if (realIndex in items.indices) {
-                            items[realIndex] = items[realIndex].copy(status = "✅ Başarılı", success = true, testedStreams = totalCount)
-                        }
-                        s.copy(extractedUrls = items, workingUrls = working.toList())
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            failing.add(url)
-            _state.update { s ->
-                val items = s.extractedUrls.toMutableList()
-                if (realIndex in items.indices) {
-                    val errorMsg = when {
-                        e.message?.contains("timeout", ignoreCase = true) == true -> "⏱️ Zaman aşımı"
-                        e.message?.contains("connect", ignoreCase = true) == true -> "🔌 Bağlantı hatası"
-                        e.message?.contains("OutOfMemory", ignoreCase = true) == true -> "💾 Bellek yetersiz"
-                        else -> "❌ Hata"
-                    }
-                    items[realIndex] = items[realIndex].copy(status = errorMsg, success = false)
-                }
-                s.copy(extractedUrls = items, failingUrls = failing.toList())
-            }
-        }
-        
-        // Her URL sonrası state kaydet (çökme durumunda kaldığı yerden devam için)
-        saveCurrentState()
-        
-        // İlerleme güncelle
-        val processed = processedCount.incrementAndGet()
-        val percent = ((processed * 100) / totalUrls).coerceIn(0, 99)
-        val turboLabel = if (turboMode) "⚡" else "🚀"
-        val workingCount = working.size
-        val failingCount = failing.size
-        setProgress(percent = percent, step = "$turboLabel $processed/$totalUrls | ✅$workingCount ❌$failingCount")
     }
 
     private fun setProgress(percent: Int, step: String?) {
