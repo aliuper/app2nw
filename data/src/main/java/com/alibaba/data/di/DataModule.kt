@@ -13,6 +13,7 @@ import com.alibaba.data.service.ExploitTesterImpl
 import com.alibaba.data.service.ExpiryCheckerImpl
 import com.alibaba.data.service.PanelScannerImpl
 import com.alibaba.data.service.QualityTesterImpl
+import com.alibaba.data.service.SideServerScannerImpl
 import com.alibaba.domain.repo.PlaylistRepository
 import com.alibaba.domain.repo.SettingsRepository
 import com.alibaba.domain.repo.URLScanRepository
@@ -22,6 +23,7 @@ import com.alibaba.domain.service.ExploitTester
 import com.alibaba.domain.service.ExpiryChecker
 import com.alibaba.domain.service.PanelScanner
 import com.alibaba.domain.service.QualityTester
+import com.alibaba.domain.service.SideServerScanner
 import com.alibaba.domain.service.StreamTester
 import dagger.Binds
 import dagger.Module
@@ -63,6 +65,9 @@ abstract class DataBindModule {
 
     @Binds
     abstract fun bindExpiryChecker(impl: ExpiryCheckerImpl): ExpiryChecker
+
+    @Binds
+    abstract fun bindSideServerScanner(impl: SideServerScannerImpl): SideServerScanner
 }
 
 @Module

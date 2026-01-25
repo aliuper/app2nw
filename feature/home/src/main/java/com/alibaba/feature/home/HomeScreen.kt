@@ -41,6 +41,7 @@ fun HomeScreen(
     onPanelScanClick: () -> Unit = {},
     onExploitTestClick: () -> Unit = {},
     onExpiryCheckClick: () -> Unit = {},
+    onSideServerClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Scaffold(
@@ -137,6 +138,13 @@ fun HomeScreen(
                 Icon(imageVector = Icons.Filled.DateRange, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(text = "📅 Bitiş Tarihi Kontrolü")
+            }
+
+            Button(
+                onClick = onSideServerClick,
+                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+            ) {
+                Text(text = "🔍 Yan Sunucu Bulucu")
             }
         }
     }
