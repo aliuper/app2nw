@@ -6,21 +6,36 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.net.InetAddress
+import java.net.Socket
 import java.net.URI
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/**
+ * Yan Sunucu Bulucu - Reverse IP Lookup + IPTV Tespiti
+ * 
+ * Yöntem:
+ * 1. Domain'in IP adresini çöz
+ * 2. HackerTarget API ile aynı IP'deki tüm domainleri bul
+ * 3. Bulunan domainleri IPTV portları için tara
+ * 4. IPTV panel tespiti yap (player_api.php, get.php varlığı)
+ * 5. Credentials ile test et
+ */
 @Singleton
 class SideServerScannerImpl @Inject constructor() : SideServerScanner {
 
     private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(5, TimeUnit.SECONDS)
-        .writeTimeout(5, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
+        .writeTimeout(8, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
+
+    // IPTV tespiti için yaygın portlar
+    private val iptvPorts = listOf(8080, 80, 25461, 25462, 25463, 8000, 8880, 8881, 8888, 9090, 1935)
 
     override suspend fun extractCredentials(m3uLink: String): SideServerScanner.Credentials? {
         return try {
@@ -162,69 +177,200 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
         }
     }
 
-    override fun generateDomainVariations(originalUrl: String): List<String> {
-        val variations = mutableListOf<String>()
+    /**
+     * Reverse IP Lookup ile aynı IP'deki domainleri bul
+     * HackerTarget API kullanır (ücretsiz, günlük 50 sorgu)
+     */
+    suspend fun reverseIpLookup(ipOrDomain: String): List<String> = withContext(Dispatchers.IO) {
+        val domains = mutableListOf<String>()
         
         try {
-            val uri = URI(originalUrl)
-            val host = uri.host ?: return variations
-            val port = if (uri.port > 0) uri.port else 80
-            val scheme = uri.scheme ?: "http"
-            
-            // 1. Port varyasyonları
-            val commonPorts = listOf(80, 8080, 8000, 25461, 25462, 25463, 25464, 25465, 8880, 8881, 8888, 9090)
-            for (p in commonPorts) {
-                if (p != port) {
-                    variations.add("$scheme://$host:$p")
+            // Domain ise IP'ye çevir
+            val ip = try {
+                if (ipOrDomain.matches(Regex("\\d+\\.\\d+\\.\\d+\\.\\d+"))) {
+                    ipOrDomain
+                } else {
+                    InetAddress.getByName(ipOrDomain).hostAddress
                 }
+            } catch (e: Exception) {
+                return@withContext domains
             }
             
-            // 2. Sayı varyasyonları (panel1 -> panel2, panel3, ...)
-            val numberPattern = Regex("(\\d+)")
-            val match = numberPattern.find(host)
-            if (match != null) {
-                val originalNumber = match.value.toIntOrNull() ?: 0
-                val prefix = host.substring(0, match.range.first)
-                val suffix = host.substring(match.range.last + 1)
-                
-                for (i in 1..10) {
-                    if (i != originalNumber) {
-                        val newHost = "$prefix$i$suffix"
-                        variations.add("$scheme://$newHost:$port")
-                        // Yaygın portlarla da dene
-                        for (p in listOf(8080, 25461, 80)) {
-                            if (p != port) {
-                                variations.add("$scheme://$newHost:$p")
-                            }
-                        }
-                    }
-                }
+            // HackerTarget Reverse IP API
+            val apiUrl = "https://api.hackertarget.com/reverseiplookup/?q=$ip"
+            
+            val request = Request.Builder()
+                .url(apiUrl)
+                .header("User-Agent", "Mozilla/5.0")
+                .get()
+                .build()
+            
+            val response = withTimeoutOrNull(15000L) {
+                httpClient.newCall(request).execute()
             }
             
-            // 3. Subdomain varyasyonları
-            val parts = host.split(".")
-            if (parts.size >= 2) {
-                val baseDomain = parts.takeLast(2).joinToString(".")
-                val prefixes = listOf("panel", "server", "tv", "iptv", "stream", "live", "cdn", "s", "srv", "m3u")
-                val suffixes = listOf("1", "2", "3", "4", "5", "01", "02", "03")
+            if (response != null && response.isSuccessful) {
+                val body = response.body?.string() ?: ""
+                response.close()
                 
-                for (prefix in prefixes) {
-                    for (suffix in suffixes) {
-                        val newHost = "$prefix$suffix.$baseDomain"
-                        if (newHost != host) {
-                            variations.add("$scheme://$newHost:$port")
-                            variations.add("$scheme://$newHost:8080")
-                            variations.add("$scheme://$newHost:25461")
-                        }
-                    }
-                }
+                // Her satır bir domain
+                body.lines()
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() && !it.startsWith("error") && !it.contains("API count exceeded") }
+                    .forEach { domains.add(it) }
             }
             
         } catch (e: Exception) {
-            // Hata durumunda boş liste döndür
+            // Hata durumunda boş liste
         }
         
-        return variations.distinct().take(100) // Max 100 varyasyon
+        domains.distinct()
+    }
+
+    /**
+     * Bir domain/IP'nin IPTV sunucusu olup olmadığını kontrol et
+     */
+    suspend fun checkIfIptvServer(host: String, port: Int = 0): SideServerScanner.ScanResult? = withContext(Dispatchers.IO) {
+        val portsToCheck = if (port > 0) listOf(port) else iptvPorts
+        
+        for (p in portsToCheck) {
+            try {
+                // Önce port açık mı kontrol et
+                val socket = Socket()
+                socket.connect(java.net.InetSocketAddress(host, p), 3000)
+                socket.close()
+                
+                // Port açık, IPTV panel kontrolü yap
+                val baseUrl = "http://$host:$p"
+                val panelCheckUrl = "$baseUrl/player_api.php"
+                
+                val request = Request.Builder()
+                    .url(panelCheckUrl)
+                    .header("User-Agent", "VLC/3.0.18 LibVLC/3.0.18")
+                    .get()
+                    .build()
+                
+                val response = withTimeoutOrNull(5000L) {
+                    httpClient.newCall(request).execute()
+                }
+                
+                if (response != null) {
+                    val body = response.body?.string() ?: ""
+                    response.close()
+                    
+                    // IPTV panel işaretleri
+                    if (body.contains("user_info") || 
+                        body.contains("server_info") ||
+                        body.contains("username") ||
+                        body.contains("password") ||
+                        body.contains("Xtream") ||
+                        response.code == 200) {
+                        
+                        return@withContext SideServerScanner.ScanResult(
+                            serverUrl = baseUrl,
+                            m3uLink = "$baseUrl/get.php?username=&password=&type=m3u_plus",
+                            isActive = true,
+                            statusText = "🎯 IPTV Panel Bulundu (Port: $p)"
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                // Bu port çalışmıyor, sonrakine geç
+            }
+        }
+        
+        null
+    }
+
+    /**
+     * Tam tarama: Reverse IP + IPTV Tespiti + Credentials Test
+     */
+    suspend fun fullScan(
+        originalUrl: String,
+        username: String,
+        password: String,
+        onProgress: (status: String, current: Int, total: Int, result: SideServerScanner.ScanResult?) -> Unit
+    ): List<SideServerScanner.ScanResult> = withContext(Dispatchers.IO) {
+        val results = mutableListOf<SideServerScanner.ScanResult>()
+        
+        try {
+            // 1. Orijinal URL'den host çıkar
+            val uri = URI(originalUrl)
+            val originalHost = uri.host ?: return@withContext results
+            val originalPort = if (uri.port > 0) uri.port else 80
+            
+            onProgress("🔍 IP adresi çözümleniyor...", 0, 100, null)
+            
+            // 2. IP adresini çöz
+            val ip = try {
+                InetAddress.getByName(originalHost).hostAddress
+            } catch (e: Exception) {
+                onProgress("❌ IP çözümlenemedi", 0, 100, null)
+                return@withContext results
+            }
+            
+            onProgress("🌐 Reverse IP Lookup yapılıyor: $ip", 5, 100, null)
+            
+            // 3. Reverse IP Lookup
+            val domains = reverseIpLookup(ip)
+            
+            if (domains.isEmpty()) {
+                onProgress("⚠️ Aynı IP'de başka domain bulunamadı", 10, 100, null)
+                // Sadece orijinal sunucuyu farklı portlarla dene
+            }
+            
+            onProgress("📋 ${domains.size} domain bulundu, IPTV taraması başlıyor...", 10, 100, null)
+            
+            // 4. Her domain için IPTV kontrolü
+            val allHosts = (domains + originalHost).distinct()
+            val totalChecks = allHosts.size
+            var checked = 0
+            
+            for (host in allHosts) {
+                checked++
+                val progress = 10 + ((checked * 70) / totalChecks)
+                onProgress("🔎 Taraniyor: $host ($checked/$totalChecks)", progress, 100, null)
+                
+                // IPTV sunucusu mu kontrol et
+                val iptvResult = checkIfIptvServer(host)
+                
+                if (iptvResult != null) {
+                    // IPTV sunucusu bulundu, credentials ile test et
+                    val testResult = testSingleServer(iptvResult.serverUrl, username, password)
+                    results.add(testResult)
+                    onProgress("${testResult.statusText}: ${testResult.serverUrl}", progress, 100, testResult)
+                }
+            }
+            
+            // 5. Orijinal sunucuyu farklı portlarla da dene
+            onProgress("🔌 Alternatif portlar deneniyor...", 85, 100, null)
+            
+            for (port in iptvPorts) {
+                if (port != originalPort) {
+                    val altUrl = "http://$originalHost:$port"
+                    // Zaten taranmış mı kontrol et
+                    if (results.none { it.serverUrl == altUrl }) {
+                        val testResult = testSingleServer(altUrl, username, password)
+                        if (testResult.isActive) {
+                            results.add(testResult)
+                            onProgress("${testResult.statusText}: $altUrl", 90, 100, testResult)
+                        }
+                    }
+                }
+            }
+            
+            onProgress("✅ Tarama tamamlandı! ${results.count { it.isActive }} aktif sunucu bulundu", 100, 100, null)
+            
+        } catch (e: Exception) {
+            onProgress("❌ Hata: ${e.message}", 100, 100, null)
+        }
+        
+        results.sortedByDescending { it.isActive }
+    }
+
+    override fun generateDomainVariations(originalUrl: String): List<String> {
+        // Bu fonksiyon artık kullanılmıyor, fullScan kullanılacak
+        return emptyList()
     }
 
     private fun extractJsonValue(json: String, key: String): String? {

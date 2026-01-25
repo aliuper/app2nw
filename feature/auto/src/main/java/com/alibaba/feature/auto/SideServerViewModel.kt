@@ -2,20 +2,18 @@ package com.alibaba.feature.auto
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.alibaba.domain.service.SideServerScanner
+import com.alibaba.data.service.SideServerScannerImpl
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 @HiltViewModel
 class SideServerViewModel @Inject constructor(
-    private val sideServerScanner: SideServerScanner
+    private val sideServerScanner: SideServerScannerImpl
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SideServerUiState())
@@ -36,11 +34,6 @@ class SideServerViewModel @Inject constructor(
                         password = credentials.password
                     )
                 }
-                
-                // Otomatik varyasyon oluştur
-                if (_state.value.autoGenerateEnabled) {
-                    generateVariations(credentials.serverUrl)
-                }
             }
         }
     }
@@ -53,64 +46,19 @@ class SideServerViewModel @Inject constructor(
         _state.update { it.copy(password = password) }
     }
 
-    fun updateServerUrls(urls: String) {
-        _state.update { it.copy(serverUrls = urls) }
-    }
-
-    fun toggleAutoGenerate(enabled: Boolean) {
-        _state.update { it.copy(autoGenerateEnabled = enabled) }
-    }
-
-    private fun generateVariations(originalServerUrl: String) {
-        viewModelScope.launch {
-            val variations = withContext(Dispatchers.Default) {
-                sideServerScanner.generateDomainVariations(originalServerUrl)
-            }
-            
-            if (variations.isNotEmpty()) {
-                val currentUrls = _state.value.serverUrls
-                val newUrls = if (currentUrls.isBlank()) {
-                    variations.joinToString("\n")
-                } else {
-                    currentUrls + "\n" + variations.joinToString("\n")
-                }
-                _state.update { it.copy(serverUrls = newUrls) }
-            }
-        }
-    }
-
-    fun manualGenerateVariations() {
-        val link = _state.value.originalLink
-        if (link.isBlank()) {
-            _state.update { it.copy(errorMessage = "Önce orijinal linki girin") }
-            return
-        }
-        
-        viewModelScope.launch {
-            val credentials = sideServerScanner.extractCredentials(link)
-            if (credentials != null) {
-                generateVariations(credentials.serverUrl)
-            } else {
-                _state.update { it.copy(errorMessage = "Link'ten sunucu bilgisi çıkarılamadı") }
-            }
-        }
-    }
-
+    /**
+     * Reverse IP Lookup + IPTV Tespiti ile tam tarama başlat
+     */
     fun startScan() {
         val currentState = _state.value
         
-        if (currentState.username.isBlank() || currentState.password.isBlank()) {
-            _state.update { it.copy(errorMessage = "Kullanıcı adı ve şifre gerekli") }
+        if (currentState.originalLink.isBlank()) {
+            _state.update { it.copy(errorMessage = "Orijinal IPTV linkini girin") }
             return
         }
         
-        val serverUrls = currentState.serverUrls
-            .split("\n")
-            .map { it.trim() }
-            .filter { it.isNotBlank() && (it.startsWith("http://") || it.startsWith("https://")) }
-        
-        if (serverUrls.isEmpty()) {
-            _state.update { it.copy(errorMessage = "En az bir sunucu URL'si girin") }
+        if (currentState.username.isBlank() || currentState.password.isBlank()) {
+            _state.update { it.copy(errorMessage = "Kullanıcı adı ve şifre gerekli") }
             return
         }
         
@@ -127,21 +75,13 @@ class SideServerViewModel @Inject constructor(
                 )
             }
             
-            val credentials = SideServerScanner.Credentials(
-                serverUrl = "",
-                username = currentState.username,
-                password = currentState.password
-            )
-            
             try {
-                val results = sideServerScanner.scanServers(
-                    credentials = credentials,
-                    serverUrls = serverUrls
-                ) { current, total, result ->
-                    val percent = ((current * 100) / total).coerceIn(0, 100)
-                    val activeCount = _state.value.results.count { it.isActive } + 
-                        (if (result?.isActive == true) 1 else 0)
-                    
+                // Yeni fullScan metodu - Reverse IP + IPTV Tespiti
+                val results = sideServerScanner.fullScan(
+                    originalUrl = currentState.originalLink,
+                    username = currentState.username,
+                    password = currentState.password
+                ) { status, current, total, result ->
                     _state.update { state ->
                         val newResults = if (result != null) {
                             state.results + SideServerResultItem(
@@ -157,8 +97,8 @@ class SideServerViewModel @Inject constructor(
                         }
                         
                         state.copy(
-                            progressPercent = percent,
-                            progressText = "$current / $total | ✅ $activeCount aktif",
+                            progressPercent = current,
+                            progressText = status,
                             results = newResults,
                             activeCount = newResults.count { it.isActive }
                         )
@@ -169,7 +109,7 @@ class SideServerViewModel @Inject constructor(
                     it.copy(
                         isScanning = false,
                         progressPercent = 100,
-                        progressText = "Tamamlandı! ${it.activeCount} aktif sunucu bulundu"
+                        progressText = "✅ Tamamlandı! ${it.activeCount} aktif sunucu bulundu"
                     )
                 }
                 

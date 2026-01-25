@@ -4,14 +4,12 @@ data class SideServerUiState(
     val originalLink: String = "",
     val username: String = "",
     val password: String = "",
-    val serverUrls: String = "", // Her satırda bir URL
     val isScanning: Boolean = false,
     val progressPercent: Int = 0,
     val progressText: String = "",
     val results: List<SideServerResultItem> = emptyList(),
     val activeCount: Int = 0,
-    val errorMessage: String? = null,
-    val autoGenerateEnabled: Boolean = true // Otomatik varyasyon oluşturma
+    val errorMessage: String? = null
 )
 
 data class SideServerResultItem(

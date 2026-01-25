@@ -1,9 +1,7 @@
 package com.alibaba.feature.auto
 
 import android.widget.Toast
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,23 +13,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -70,7 +62,7 @@ fun SideServerRoute(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("🔍 Yan Sunucu Bulucu") },
+                title = { Text("🌐 Yan Sunucu Bulucu") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Geri")
@@ -96,11 +88,31 @@ fun SideServerRoute(
                 .padding(padding)
                 .padding(16.dp)
         ) {
+            // Açıklama
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = "🔍 Reverse IP Lookup + IPTV Tespiti",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Kapanan IPTV linkinizin alternatif sunucularını bulur. Aynı IP'deki tüm domainleri tarar ve IPTV panellerini tespit eder.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
             // Orijinal Link Girişi
             OutlinedTextField(
                 value = state.originalLink,
                 onValueChange = { viewModel.updateOriginalLink(it) },
-                label = { Text("Orijinal M3U Linki") },
+                label = { Text("IPTV M3U Linki") },
                 placeholder = { Text("http://example.com:8080/get.php?username=...") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
@@ -131,44 +143,6 @@ fun SideServerRoute(
                     enabled = !state.isScanning
                 )
             }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Otomatik Varyasyon Checkbox
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Checkbox(
-                    checked = state.autoGenerateEnabled,
-                    onCheckedChange = { viewModel.toggleAutoGenerate(it) },
-                    enabled = !state.isScanning
-                )
-                Text("Otomatik sunucu varyasyonları oluştur")
-                Spacer(modifier = Modifier.weight(1f))
-                OutlinedButton(
-                    onClick = { viewModel.manualGenerateVariations() },
-                    enabled = !state.isScanning
-                ) {
-                    Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Oluştur")
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Sunucu URL'leri
-            OutlinedTextField(
-                value = state.serverUrls,
-                onValueChange = { viewModel.updateServerUrls(it) },
-                label = { Text("Taranacak Sunucu URL'leri (her satırda bir URL)") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(120.dp),
-                enabled = !state.isScanning,
-                maxLines = 10
-            )
 
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -209,7 +183,7 @@ fun SideServerRoute(
                     ) {
                         Icon(Icons.Default.Search, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Taramayı Başlat")
+                        Text("Yan Sunucu Ara")
                     }
                 }
                 
@@ -244,7 +218,7 @@ fun SideServerRoute(
             // Sonuçlar
             if (state.results.isNotEmpty()) {
                 Text(
-                    text = "Sonuçlar (${state.activeCount} aktif / ${state.results.size} toplam)",
+                    text = "🎯 Bulunan Sunucular (${state.activeCount} aktif / ${state.results.size} toplam)",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
