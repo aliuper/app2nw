@@ -359,6 +359,123 @@ class AutoViewModel @Inject constructor(
         _state.update { it.copy(hasInterruptedTest = false) }
     }
     
+    // ==================== YAN PANEL BULMA ====================
+    
+    fun setSidePanelUrl(url: String) {
+        _state.update { it.copy(sidePanelUrl = url) }
+    }
+    
+    fun searchSidePanels(fastMode: Boolean = true) {
+        val url = state.value.sidePanelUrl.trim()
+        if (url.isBlank()) {
+            _state.update { it.copy(errorMessage = "Lütfen bir IPTV URL'si girin") }
+            return
+        }
+        
+        viewModelScope.launch {
+            _state.update { 
+                it.copy(
+                    sidePanelSearching = true,
+                    sidePanelProgress = 0,
+                    sidePanelTotal = 0,
+                    sidePanelFound = 0,
+                    sidePanelResults = emptyList(),
+                    errorMessage = null
+                )
+            }
+            
+            try {
+                val results = if (fastMode) {
+                    com.alibaba.core.common.findSidePanelsFast(url) { current, total, found ->
+                        _state.update { 
+                            it.copy(
+                                sidePanelProgress = current,
+                                sidePanelTotal = total,
+                                sidePanelFound = found
+                            )
+                        }
+                    }
+                } else {
+                    com.alibaba.core.common.findSidePanels(url) { current, total, found ->
+                        _state.update { 
+                            it.copy(
+                                sidePanelProgress = current,
+                                sidePanelTotal = total,
+                                sidePanelFound = found
+                            )
+                        }
+                    }
+                }
+                
+                _state.update { 
+                    it.copy(
+                        sidePanelSearching = false,
+                        sidePanelResults = results.map { r ->
+                            SidePanelItem(
+                                url = r.url,
+                                username = r.username,
+                                password = r.password,
+                                isWorking = r.isWorking
+                            )
+                        },
+                        errorMessage = if (results.isEmpty()) "Yan panel bulunamadı" else null
+                    )
+                }
+            } catch (e: Exception) {
+                _state.update { 
+                    it.copy(
+                        sidePanelSearching = false,
+                        errorMessage = "Hata: ${e.message}"
+                    )
+                }
+            }
+        }
+    }
+    
+    fun toggleSidePanelSelection(url: String) {
+        _state.update { s ->
+            val updated = s.sidePanelResults.map { item ->
+                if (item.url == url) item.copy(isSelected = !item.isSelected) else item
+            }
+            s.copy(sidePanelResults = updated)
+        }
+    }
+    
+    fun selectAllSidePanels() {
+        _state.update { s ->
+            s.copy(sidePanelResults = s.sidePanelResults.map { it.copy(isSelected = true) })
+        }
+    }
+    
+    fun addSelectedSidePanelsToTest() {
+        val selected = state.value.sidePanelResults.filter { it.isSelected }
+        if (selected.isEmpty()) return
+        
+        val currentUrls = state.value.extractedUrls.map { it.url }.toSet()
+        val newUrls = selected.map { it.url }.filter { it !in currentUrls }
+        
+        if (newUrls.isNotEmpty()) {
+            _state.update { s ->
+                s.copy(
+                    extractedUrls = s.extractedUrls + newUrls.map { UrlItem(url = it) },
+                    sidePanelResults = emptyList(),
+                    sidePanelUrl = ""
+                )
+            }
+        }
+    }
+    
+    fun clearSidePanelResults() {
+        _state.update { 
+            it.copy(
+                sidePanelResults = emptyList(),
+                sidePanelProgress = 0,
+                sidePanelTotal = 0,
+                sidePanelFound = 0
+            )
+        }
+    }
+    
     fun clearRecoveredLinks() {
         // Kurtarılan linkleri temizle
         _state.update { it.copy(recoveredWorkingUrls = emptyList()) }

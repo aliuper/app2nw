@@ -15,6 +15,14 @@ data class SavedFileItem(
     val uriString: String
 )
 
+data class SidePanelItem(
+    val url: String,
+    val username: String,
+    val password: String,
+    val isWorking: Boolean,
+    val isSelected: Boolean = false
+)
+
 data class AutoUiState(
     val step: Int = 0,
     val inputText: String = "",
@@ -46,5 +54,12 @@ data class AutoUiState(
     val outputPreview: String? = null,
     val savedFiles: List<SavedFileItem> = emptyList(),
     val hasInterruptedTest: Boolean = false, // Yarıda kalan test var mı
-    val recoveredWorkingUrls: List<String> = emptyList() // Kurtarılan çalışan linkler
+    val recoveredWorkingUrls: List<String> = emptyList(), // Kurtarılan çalışan linkler
+    // Yan panel bulma
+    val sidePanelSearching: Boolean = false,
+    val sidePanelProgress: Int = 0,
+    val sidePanelTotal: Int = 0,
+    val sidePanelFound: Int = 0,
+    val sidePanelResults: List<SidePanelItem> = emptyList(),
+    val sidePanelUrl: String = "" // Yan panel aranacak URL
 )

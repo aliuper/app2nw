@@ -187,6 +187,13 @@ fun AutoRoute(
             pendingSaveText = text
             textSaver.launch(suggestedName)
         },
+        // Yan panel bulma callback'leri
+        onSidePanelUrlChange = viewModel::setSidePanelUrl,
+        onSearchSidePanels = viewModel::searchSidePanels,
+        onToggleSidePanelSelection = viewModel::toggleSidePanelSelection,
+        onSelectAllSidePanels = viewModel::selectAllSidePanels,
+        onAddSelectedSidePanelsToTest = viewModel::addSelectedSidePanelsToTest,
+        onClearSidePanelResults = viewModel::clearSidePanelResults,
         modifier = modifier
     )
 }
@@ -219,6 +226,13 @@ fun AutoScreen(
     onRequestBatteryExemption: () -> Unit,
     onPickFolder: () -> Unit,
     onSaveText: (suggestedName: String, text: String) -> Unit,
+    // Yan panel bulma callback'leri
+    onSidePanelUrlChange: (String) -> Unit = {},
+    onSearchSidePanels: (fastMode: Boolean) -> Unit = {},
+    onToggleSidePanelSelection: (String) -> Unit = {},
+    onSelectAllSidePanels: () -> Unit = {},
+    onAddSelectedSidePanelsToTest: () -> Unit = {},
+    onClearSidePanelResults: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val scroll = rememberScrollState()
@@ -670,6 +684,127 @@ fun AutoScreen(
                             )
                         ) {
                             Text(text = "Sıfırla")
+                        }
+                    }
+
+                    // YAN PANEL BULMA BÖLÜMÜ
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(text = "🔍 Yan Panel Bul", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                text = "Bir IPTV URL'si girin, aynı sunucudaki diğer panelleri bulalım",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            
+                            OutlinedTextField(
+                                value = state.sidePanelUrl,
+                                onValueChange = { onSidePanelUrlChange(it) },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("IPTV URL (örn: http://server.com/get.php?username=x&password=y)") },
+                                singleLine = true,
+                                enabled = !state.sidePanelSearching
+                            )
+                            
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(
+                                    onClick = { onSearchSidePanels(true) },
+                                    enabled = !state.sidePanelSearching && state.sidePanelUrl.isNotBlank()
+                                ) {
+                                    Text("⚡ Hızlı Tara")
+                                }
+                                
+                                androidx.compose.material3.OutlinedButton(
+                                    onClick = { onSearchSidePanels(false) },
+                                    enabled = !state.sidePanelSearching && state.sidePanelUrl.isNotBlank()
+                                ) {
+                                    Text("🔎 Detaylı Tara")
+                                }
+                            }
+                            
+                            // Tarama ilerleme durumu
+                            if (state.sidePanelSearching) {
+                                LinearProgressIndicator(
+                                    progress = { if (state.sidePanelTotal > 0) state.sidePanelProgress.toFloat() / state.sidePanelTotal else 0f },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Text(
+                                    text = "Taranıyor: ${state.sidePanelProgress}/${state.sidePanelTotal} | Bulunan: ${state.sidePanelFound}",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                            
+                            // Bulunan yan paneller
+                            if (state.sidePanelResults.isNotEmpty()) {
+                                HorizontalDivider()
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "✅ ${state.sidePanelResults.size} Panel Bulundu",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        androidx.compose.material3.TextButton(onClick = { onSelectAllSidePanels() }) {
+                                            Text("Tümünü Seç")
+                                        }
+                                        androidx.compose.material3.TextButton(onClick = { onClearSidePanelResults() }) {
+                                            Text("Temizle")
+                                        }
+                                    }
+                                }
+                                
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(max = 150.dp)
+                                ) {
+                                    itemsIndexed(state.sidePanelResults) { index, panel ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Checkbox(
+                                                checked = panel.isSelected,
+                                                onCheckedChange = { onToggleSidePanelSelection(panel.url) }
+                                            )
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = "${index + 1}. ${panel.username}:${panel.password}",
+                                                    style = MaterialTheme.typography.bodyMedium
+                                                )
+                                                Text(
+                                                    text = panel.url,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1
+                                                )
+                                            }
+                                            if (panel.isWorking) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.CheckCircle,
+                                                    contentDescription = "Çalışıyor",
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                Button(
+                                    onClick = { onAddSelectedSidePanelsToTest() },
+                                    enabled = state.sidePanelResults.any { it.isSelected },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text("Seçilenleri Test Listesine Ekle (${state.sidePanelResults.count { it.isSelected }})")
+                                }
+                            }
                         }
                     }
 
