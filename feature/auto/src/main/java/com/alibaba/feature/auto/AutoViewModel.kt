@@ -1157,6 +1157,9 @@ class AutoViewModel @Inject constructor(
             }
         }
         
+        // Her URL sonrası state kaydet (çökme durumunda kaldığı yerden devam için)
+        saveCurrentState()
+        
         // İlerleme güncelle
         val processed = processedCount.incrementAndGet()
         val percent = ((processed * 100) / totalUrls).coerceIn(0, 99)
