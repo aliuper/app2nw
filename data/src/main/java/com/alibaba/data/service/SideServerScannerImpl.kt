@@ -835,6 +835,7 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
 
     /**
      * AŞAMA 2: Bulunan domainleri IPTV için test et
+     * User/Pass girilmişse her panelde dener, uyuşursa "✅ User/Pass Uyumlu" işareti koyar
      */
     suspend fun testDomainsForIptv(
         domains: List<String>,
@@ -845,6 +846,7 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
         val results = mutableListOf<SideServerScanner.ScanResult>()
         val totalDomains = domains.size
         var checked = 0
+        val hasCredentials = username.isNotBlank() && password.isNotBlank()
         
         for (domain in domains) {
             checked++
@@ -856,12 +858,27 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
             
             if (iptvResult != null) {
                 // IPTV sunucusu bulundu
-                if (username.isNotBlank() && password.isNotBlank()) {
+                if (hasCredentials) {
                     // Credentials varsa test et
                     val testResult = testSingleServer(iptvResult.serverUrl, username, password)
                     if (results.none { it.serverUrl == testResult.serverUrl }) {
-                        results.add(testResult)
-                        onProgress("${testResult.statusText}: ${testResult.serverUrl}", progress, 100, testResult)
+                        // User/Pass uyuştu mu kontrol et
+                        val finalResult = if (testResult.isActive) {
+                            // ✅ User/Pass uyuştu!
+                            testResult.copy(
+                                statusText = "✅ User/Pass Uyumlu! ${testResult.statusText}"
+                            )
+                        } else {
+                            // Panel var ama user/pass uyuşmadı
+                            SideServerScanner.ScanResult(
+                                serverUrl = iptvResult.serverUrl,
+                                m3uLink = iptvResult.m3uLink,
+                                isActive = false,
+                                statusText = "🎯 IPTV Panel (User/Pass uyuşmadı)"
+                            )
+                        }
+                        results.add(finalResult)
+                        onProgress("${finalResult.statusText}: ${finalResult.serverUrl}", progress, 100, finalResult)
                     }
                 } else {
                     // Credentials yoksa sadece IPTV panel olarak ekle
@@ -874,8 +891,16 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
         }
         
         val activeCount = results.count { it.isActive }
-        onProgress("✅ Test tamamlandı! $activeCount IPTV sunucusu bulundu", 100, 100, null)
+        val matchedCount = results.count { it.statusText.contains("User/Pass Uyumlu") }
         
+        val summaryText = if (hasCredentials) {
+            "✅ Test tamamlandı! $matchedCount panelde User/Pass uyuştu, ${results.size} IPTV paneli bulundu"
+        } else {
+            "✅ Test tamamlandı! ${results.size} IPTV paneli bulundu"
+        }
+        onProgress(summaryText, 100, 100, null)
+        
+        // Önce user/pass uyuşanlar, sonra diğerleri
         results.sortedByDescending { it.isActive }
     }
 
