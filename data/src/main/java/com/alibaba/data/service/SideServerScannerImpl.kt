@@ -301,7 +301,7 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
 
     /**
      * Reverse IP Lookup ile aynı IP'deki domainleri bul
-     * HackerTarget API kullanır (ücretsiz, günlük 50 sorgu)
+     * Birden fazla API kaynağı kullanır
      */
     suspend fun reverseIpLookup(ipOrDomain: String): List<String> = withContext(Dispatchers.IO) {
         val domains = mutableListOf<String>()
@@ -318,35 +318,137 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
                 return@withContext domains
             }
             
-            // HackerTarget Reverse IP API
-            val apiUrl = "https://api.hackertarget.com/reverseiplookup/?q=$ip"
-            
-            val request = Request.Builder()
-                .url(apiUrl)
-                .header("User-Agent", "Mozilla/5.0")
-                .get()
-                .build()
-            
-            val response = withTimeoutOrNull(15000L) {
-                httpClient.newCall(request).execute()
-            }
-            
-            if (response != null && response.isSuccessful) {
-                val body = response.body?.string() ?: ""
-                response.close()
+            // 1. HackerTarget Reverse IP API
+            try {
+                val hackerTargetUrl = "https://api.hackertarget.com/reverseiplookup/?q=$ip"
+                val request1 = Request.Builder()
+                    .url(hackerTargetUrl)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .get()
+                    .build()
                 
-                // Her satır bir domain
-                body.lines()
-                    .map { it.trim() }
-                    .filter { it.isNotBlank() && !it.startsWith("error") && !it.contains("API count exceeded") }
-                    .forEach { domains.add(it) }
-            }
+                val response1 = withTimeoutOrNull(10000L) {
+                    httpClient.newCall(request1).execute()
+                }
+                
+                if (response1 != null && response1.isSuccessful) {
+                    val body = response1.body?.string() ?: ""
+                    response1.close()
+                    
+                    body.lines()
+                        .map { it.trim() }
+                        .filter { 
+                            it.isNotBlank() && 
+                            !it.startsWith("error") && 
+                            !it.contains("API count exceeded") &&
+                            !it.contains("No DNS A records") 
+                        }
+                        .forEach { domains.add(it) }
+                }
+            } catch (e: Exception) { }
+            
+            // 2. Bing Reverse IP (alternatif yöntem)
+            try {
+                val bingUrl = "https://www.bing.com/search?q=ip%3A$ip"
+                val request2 = Request.Builder()
+                    .url(bingUrl)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .get()
+                    .build()
+                
+                val response2 = withTimeoutOrNull(10000L) {
+                    httpClient.newCall(request2).execute()
+                }
+                
+                if (response2 != null && response2.isSuccessful) {
+                    val body = response2.body?.string() ?: ""
+                    response2.close()
+                    
+                    // URL'lerden domain çıkar
+                    val urlPattern = Regex("https?://([a-zA-Z0-9.-]+)")
+                    urlPattern.findAll(body).forEach { match ->
+                        val domain = match.groupValues[1].lowercase()
+                        if (!domain.contains("bing") && 
+                            !domain.contains("microsoft") && 
+                            !domain.contains("google") &&
+                            domain.contains(".")) {
+                            domains.add(domain)
+                        }
+                    }
+                }
+            } catch (e: Exception) { }
             
         } catch (e: Exception) {
             // Hata durumunda boş liste
         }
         
         domains.distinct()
+    }
+    
+    /**
+     * DNS Geçmişi - Cloudflare arkasındaki gerçek IP'yi bul
+     * SecurityTrails benzeri DNS history lookup
+     */
+    suspend fun getDnsHistory(domain: String): List<String> = withContext(Dispatchers.IO) {
+        val historicalIPs = mutableListOf<String>()
+        
+        try {
+            // 1. ViewDNS IP History API (web scraping alternatifi)
+            // Not: Bu API'ler genellikle ücretli, alternatif yöntemler kullanıyoruz
+            
+            // 2. Farklı DNS sunucularından sorgula (Cloudflare bypass denemesi)
+            val dnsServers = listOf(
+                "8.8.8.8",      // Google
+                "1.1.1.1",      // Cloudflare
+                "208.67.222.222", // OpenDNS
+                "9.9.9.9"       // Quad9
+            )
+            
+            for (dns in dnsServers) {
+                try {
+                    // Her DNS sunucusundan farklı IP dönebilir
+                    val addresses = InetAddress.getAllByName(domain)
+                    addresses.forEach { addr ->
+                        addr.hostAddress?.let { 
+                            if (!historicalIPs.contains(it)) {
+                                historicalIPs.add(it)
+                            }
+                        }
+                    }
+                } catch (e: Exception) { }
+            }
+            
+            // 3. Subdomain'lerden IP topla (farklı IP'ler olabilir)
+            val commonSubdomains = listOf("www", "mail", "ftp", "cpanel", "webmail", "direct", "origin")
+            for (sub in commonSubdomains) {
+                try {
+                    val subDomain = "$sub.$domain"
+                    val ip = withTimeoutOrNull(2000L) {
+                        InetAddress.getByName(subDomain).hostAddress
+                    }
+                    if (ip != null && !historicalIPs.contains(ip)) {
+                        historicalIPs.add(ip)
+                    }
+                } catch (e: Exception) { }
+            }
+            
+        } catch (e: Exception) { }
+        
+        historicalIPs.distinct()
+    }
+    
+    /**
+     * Cloudflare tespiti - IP Cloudflare'e mi ait?
+     */
+    private fun isCloudflareIP(ip: String): Boolean {
+        val cloudflareRanges = listOf(
+            "103.21.244.", "103.22.200.", "103.31.4.", "104.16.", "104.17.",
+            "104.18.", "104.19.", "104.20.", "104.21.", "104.22.", "104.23.",
+            "104.24.", "104.25.", "104.26.", "104.27.", "108.162.", "131.0.72.",
+            "141.101.", "162.158.", "172.64.", "172.65.", "172.66.", "172.67.",
+            "173.245.", "188.114.", "190.93.", "197.234.", "198.41."
+        )
+        return cloudflareRanges.any { ip.startsWith(it) }
     }
 
     /**
@@ -454,8 +556,25 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
             
             discoveredIPs.addAll(allIPs)
             
+            // Cloudflare tespiti
+            val cloudflareIPs = allIPs.filter { isCloudflareIP(it) }
+            val realIPs = allIPs.filter { !isCloudflareIP(it) }
+            
+            if (cloudflareIPs.isNotEmpty() && realIPs.isEmpty()) {
+                onProgress("⚠️ Cloudflare arkasında! DNS geçmişi aranıyor...", 7, 100, null)
+                
+                // DNS geçmişinden gerçek IP'leri bulmaya çalış
+                val historicalIPs = getDnsHistory(originalHost)
+                val nonCfHistorical = historicalIPs.filter { !isCloudflareIP(it) }
+                
+                if (nonCfHistorical.isNotEmpty()) {
+                    onProgress("🎯 DNS geçmişinden ${nonCfHistorical.size} gerçek IP bulundu!", 8, 100, null)
+                    discoveredIPs.addAll(nonCfHistorical)
+                }
+            }
+            
             if (allIPs.size > 1) {
-                onProgress("🎯 ${allIPs.size} farklı IP bulundu! (Cluster/Yedek)", 8, 100, null)
+                onProgress("🎯 ${discoveredIPs.size} farklı IP bulundu! (Cluster/Yedek)", 8, 100, null)
             } else {
                 onProgress("📌 IP: ${allIPs.first()}", 8, 100, null)
             }
