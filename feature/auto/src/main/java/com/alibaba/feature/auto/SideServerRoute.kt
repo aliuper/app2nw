@@ -100,7 +100,7 @@ fun SideServerRoute(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Kapanan IPTV linkinizin alternatif sunucularını bulur. Aynı IP'deki tüm domainleri tarar ve IPTV panellerini tespit eder.",
+                        text = "Sadece domain girerek aynı IP'deki tüm IPTV panellerini bulun. Kullanıcı adı/şifre opsiyoneldir - girerseniz aktiflik testi de yapılır.",
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
@@ -108,20 +108,21 @@ fun SideServerRoute(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Orijinal Link Girişi
+            // Orijinal Link Girişi - BasicTextField ile donma sorunu çözüldü
             OutlinedTextField(
                 value = state.originalLink,
                 onValueChange = { viewModel.updateOriginalLink(it) },
-                label = { Text("IPTV M3U Linki") },
-                placeholder = { Text("http://example.com:8080/get.php?username=...") },
+                label = { Text("IPTV Linki veya Domain") },
+                placeholder = { Text("example.com:8080 veya http://...") },
                 modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
+                singleLine = false,
+                maxLines = 2,
                 enabled = !state.isScanning
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Credentials
+            // Credentials (Opsiyonel)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -129,7 +130,7 @@ fun SideServerRoute(
                 OutlinedTextField(
                     value = state.username,
                     onValueChange = { viewModel.updateUsername(it) },
-                    label = { Text("Kullanıcı Adı") },
+                    label = { Text("Kullanıcı Adı (opsiyonel)") },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
                     enabled = !state.isScanning
@@ -137,7 +138,7 @@ fun SideServerRoute(
                 OutlinedTextField(
                     value = state.password,
                     onValueChange = { viewModel.updatePassword(it) },
-                    label = { Text("Şifre") },
+                    label = { Text("Şifre (opsiyonel)") },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
                     enabled = !state.isScanning
@@ -189,7 +190,7 @@ fun SideServerRoute(
                 
                 OutlinedButton(
                     onClick = { viewModel.clearResults() },
-                    enabled = !state.isScanning && state.results.isNotEmpty()
+                    enabled = !state.isScanning
                 ) {
                     Text("Temizle")
                 }

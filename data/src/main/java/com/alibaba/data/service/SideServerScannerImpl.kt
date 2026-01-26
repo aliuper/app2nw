@@ -283,7 +283,8 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
     }
 
     /**
-     * Tam tarama: Reverse IP + IPTV Tespiti + Credentials Test
+     * Tam tarama: Reverse IP + IPTV Tespiti
+     * Kullanıcı adı/şifre opsiyonel - sadece domain ile de çalışır
      */
     suspend fun fullScan(
         originalUrl: String,
@@ -295,17 +296,21 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
         
         try {
             // 1. Orijinal URL'den host çıkar
-            val uri = URI(originalUrl)
-            val originalHost = uri.host ?: return@withContext results
-            val originalPort = if (uri.port > 0) uri.port else 80
+            val originalHost = extractHostFromInput(originalUrl)
+            if (originalHost.isBlank()) {
+                onProgress("❌ Geçersiz URL veya domain", 0, 100, null)
+                return@withContext results
+            }
             
-            onProgress("🔍 IP adresi çözümleniyor...", 0, 100, null)
+            val originalPort = extractPortFromInput(originalUrl)
+            
+            onProgress("🔍 IP adresi çözümleniyor: $originalHost", 0, 100, null)
             
             // 2. IP adresini çöz
             val ip = try {
                 InetAddress.getByName(originalHost).hostAddress
             } catch (e: Exception) {
-                onProgress("❌ IP çözümlenemedi", 0, 100, null)
+                onProgress("❌ IP çözümlenemedi: $originalHost", 0, 100, null)
                 return@withContext results
             }
             
@@ -315,11 +320,10 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
             val domains = reverseIpLookup(ip)
             
             if (domains.isEmpty()) {
-                onProgress("⚠️ Aynı IP'de başka domain bulunamadı", 10, 100, null)
-                // Sadece orijinal sunucuyu farklı portlarla dene
+                onProgress("⚠️ Aynı IP'de başka domain bulunamadı, port taraması yapılıyor...", 10, 100, null)
+            } else {
+                onProgress("🎉 ${domains.size} domain bulundu! IPTV taraması başlıyor...", 10, 100, null)
             }
-            
-            onProgress("📋 ${domains.size} domain bulundu, IPTV taraması başlıyor...", 10, 100, null)
             
             // 4. Her domain için IPTV kontrolü
             val allHosts = (domains + originalHost).distinct()
@@ -328,17 +332,24 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
             
             for (host in allHosts) {
                 checked++
-                val progress = 10 + ((checked * 70) / totalChecks)
+                val progress = 10 + ((checked * 70) / totalChecks.coerceAtLeast(1))
                 onProgress("🔎 Taraniyor: $host ($checked/$totalChecks)", progress, 100, null)
                 
                 // IPTV sunucusu mu kontrol et
                 val iptvResult = checkIfIptvServer(host)
                 
                 if (iptvResult != null) {
-                    // IPTV sunucusu bulundu, credentials ile test et
-                    val testResult = testSingleServer(iptvResult.serverUrl, username, password)
-                    results.add(testResult)
-                    onProgress("${testResult.statusText}: ${testResult.serverUrl}", progress, 100, testResult)
+                    // IPTV sunucusu bulundu
+                    if (username.isNotBlank() && password.isNotBlank()) {
+                        // Credentials varsa test et
+                        val testResult = testSingleServer(iptvResult.serverUrl, username, password)
+                        results.add(testResult)
+                        onProgress("${testResult.statusText}: ${testResult.serverUrl}", progress, 100, testResult)
+                    } else {
+                        // Credentials yoksa sadece IPTV panel olarak ekle
+                        results.add(iptvResult)
+                        onProgress("🎯 IPTV Panel: ${iptvResult.serverUrl}", progress, 100, iptvResult)
+                    }
                 }
             }
             
@@ -350,22 +361,72 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
                     val altUrl = "http://$originalHost:$port"
                     // Zaten taranmış mı kontrol et
                     if (results.none { it.serverUrl == altUrl }) {
-                        val testResult = testSingleServer(altUrl, username, password)
-                        if (testResult.isActive) {
-                            results.add(testResult)
-                            onProgress("${testResult.statusText}: $altUrl", 90, 100, testResult)
+                        val iptvCheck = checkIfIptvServer(originalHost, port)
+                        if (iptvCheck != null) {
+                            if (username.isNotBlank() && password.isNotBlank()) {
+                                val testResult = testSingleServer(altUrl, username, password)
+                                if (testResult.isActive) {
+                                    results.add(testResult)
+                                    onProgress("${testResult.statusText}: $altUrl", 90, 100, testResult)
+                                }
+                            } else {
+                                results.add(iptvCheck)
+                                onProgress("🎯 IPTV Panel: $altUrl", 90, 100, iptvCheck)
+                            }
                         }
                     }
                 }
             }
             
-            onProgress("✅ Tarama tamamlandı! ${results.count { it.isActive }} aktif sunucu bulundu", 100, 100, null)
+            val activeCount = results.count { it.isActive }
+            onProgress("✅ Tarama tamamlandı! $activeCount IPTV sunucusu bulundu", 100, 100, null)
             
         } catch (e: Exception) {
             onProgress("❌ Hata: ${e.message}", 100, 100, null)
         }
         
         results.sortedByDescending { it.isActive }
+    }
+    
+    /**
+     * Girdişten host çıkar (URL veya sadece domain olabilir)
+     */
+    private fun extractHostFromInput(input: String): String {
+        val trimmed = input.trim()
+        
+        return try {
+            // Önce URL olarak dene
+            if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+                URI(trimmed).host ?: ""
+            } else {
+                // Sadece domain veya domain:port olabilir
+                val hostPart = trimmed.split(":").firstOrNull() ?: trimmed
+                // Path varsa kaldır
+                hostPart.split("/").firstOrNull() ?: hostPart
+            }
+        } catch (e: Exception) {
+            // Son çare: basit temizleme
+            trimmed.replace("http://", "").replace("https://", "").split(":").firstOrNull()?.split("/")?.firstOrNull() ?: ""
+        }
+    }
+    
+    /**
+     * Girdişten port çıkar
+     */
+    private fun extractPortFromInput(input: String): Int {
+        return try {
+            if (input.startsWith("http://") || input.startsWith("https://")) {
+                val uri = URI(input.trim())
+                if (uri.port > 0) uri.port else 80
+            } else {
+                val parts = input.trim().split(":")
+                if (parts.size >= 2) {
+                    parts[1].split("/").firstOrNull()?.toIntOrNull() ?: 80
+                } else 80
+            }
+        } catch (e: Exception) {
+            80
+        }
     }
 
     override fun generateDomainVariations(originalUrl: String): List<String> {

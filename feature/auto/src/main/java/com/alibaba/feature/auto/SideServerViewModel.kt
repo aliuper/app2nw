@@ -48,17 +48,13 @@ class SideServerViewModel @Inject constructor(
 
     /**
      * Reverse IP Lookup + IPTV Tespiti ile tam tarama başlat
+     * Kullanıcı adı/şifre opsiyonel - sadece domain ile de çalışır
      */
     fun startScan() {
         val currentState = _state.value
         
         if (currentState.originalLink.isBlank()) {
-            _state.update { it.copy(errorMessage = "Orijinal IPTV linkini girin") }
-            return
-        }
-        
-        if (currentState.username.isBlank() || currentState.password.isBlank()) {
-            _state.update { it.copy(errorMessage = "Kullanıcı adı ve şifre gerekli") }
+            _state.update { it.copy(errorMessage = "IPTV linkini veya domain adresini girin") }
             return
         }
         
@@ -138,10 +134,14 @@ class SideServerViewModel @Inject constructor(
     fun clearResults() {
         _state.update { 
             it.copy(
+                originalLink = "",
+                username = "",
+                password = "",
                 results = emptyList(),
                 activeCount = 0,
                 progressPercent = 0,
-                progressText = ""
+                progressText = "",
+                errorMessage = null
             )
         }
     }
