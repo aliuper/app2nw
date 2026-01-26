@@ -299,9 +299,12 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
         discovered.distinct()
     }
 
+    // Mobil User-Agent - Cloudflare bypass için
+    private val mobileUserAgent = "Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+    
     /**
      * Reverse IP Lookup ile aynı IP'deki domainleri bul
-     * Birden fazla API kaynağı kullanır
+     * RapidDNS.io kullanır (8 milyar DNS kaydı, ücretsiz)
      */
     suspend fun reverseIpLookup(ipOrDomain: String): List<String> = withContext(Dispatchers.IO) {
         val domains = mutableListOf<String>()
@@ -318,16 +321,19 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
                 return@withContext domains
             }
             
-            // 1. HackerTarget Reverse IP API
+            // 1. RapidDNS.io - En güvenilir kaynak (8 milyar DNS kaydı)
             try {
-                val hackerTargetUrl = "https://api.hackertarget.com/reverseiplookup/?q=$ip"
+                val rapidDnsUrl = "https://rapiddns.io/sameip/$ip?full=1"
                 val request1 = Request.Builder()
-                    .url(hackerTargetUrl)
-                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .url(rapidDnsUrl)
+                    .header("User-Agent", mobileUserAgent)
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                    .header("Accept-Language", "en-US,en;q=0.5")
+                    .header("Connection", "keep-alive")
                     .get()
                     .build()
                 
-                val response1 = withTimeoutOrNull(10000L) {
+                val response1 = withTimeoutOrNull(15000L) {
                     httpClient.newCall(request1).execute()
                 }
                 
@@ -335,54 +341,92 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
                     val body = response1.body?.string() ?: ""
                     response1.close()
                     
-                    body.lines()
-                        .map { it.trim() }
-                        .filter { 
-                            it.isNotBlank() && 
-                            !it.startsWith("error") && 
-                            !it.contains("API count exceeded") &&
-                            !it.contains("No DNS A records") 
+                    // HTML'den domain'leri çıkar - tablo satırlarından
+                    // <td>domain.com</td> formatında
+                    val domainPattern = Regex("<td[^>]*>([a-zA-Z0-9][-a-zA-Z0-9]*\\.[a-zA-Z0-9][-a-zA-Z0-9.]*)</td>")
+                    domainPattern.findAll(body).forEach { match ->
+                        val domain = match.groupValues[1].lowercase().trim()
+                        if (domain.isNotBlank() && 
+                            domain.contains(".") &&
+                            !domain.endsWith(".arpa") &&
+                            !isJunkDomain(domain)) {
+                            domains.add(domain)
                         }
-                        .forEach { domains.add(it) }
-                }
-            } catch (e: Exception) { }
-            
-            // 2. Bing Reverse IP (alternatif yöntem)
-            try {
-                val bingUrl = "https://www.bing.com/search?q=ip%3A$ip"
-                val request2 = Request.Builder()
-                    .url(bingUrl)
-                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    .get()
-                    .build()
-                
-                val response2 = withTimeoutOrNull(10000L) {
-                    httpClient.newCall(request2).execute()
-                }
-                
-                if (response2 != null && response2.isSuccessful) {
-                    val body = response2.body?.string() ?: ""
-                    response2.close()
+                    }
                     
-                    // URL'lerden domain çıkar
-                    val urlPattern = Regex("https?://([a-zA-Z0-9.-]+)")
-                    urlPattern.findAll(body).forEach { match ->
-                        val domain = match.groupValues[1].lowercase()
-                        if (!domain.contains("bing") && 
-                            !domain.contains("microsoft") && 
-                            !domain.contains("google") &&
-                            domain.contains(".")) {
+                    // Alternatif pattern - link formatı
+                    val linkPattern = Regex("href=\"[^\"]*\">([a-zA-Z0-9][-a-zA-Z0-9]*\\.[a-zA-Z0-9][-a-zA-Z0-9.]*)</a>")
+                    linkPattern.findAll(body).forEach { match ->
+                        val domain = match.groupValues[1].lowercase().trim()
+                        if (domain.isNotBlank() && 
+                            domain.contains(".") &&
+                            !domain.endsWith(".arpa") &&
+                            !isJunkDomain(domain)) {
                             domains.add(domain)
                         }
                     }
                 }
             } catch (e: Exception) { }
             
+            // 2. HackerTarget (yedek)
+            if (domains.isEmpty()) {
+                try {
+                    val hackerTargetUrl = "https://api.hackertarget.com/reverseiplookup/?q=$ip"
+                    val request2 = Request.Builder()
+                        .url(hackerTargetUrl)
+                        .header("User-Agent", mobileUserAgent)
+                        .get()
+                        .build()
+                    
+                    val response2 = withTimeoutOrNull(10000L) {
+                        httpClient.newCall(request2).execute()
+                    }
+                    
+                    if (response2 != null && response2.isSuccessful) {
+                        val body = response2.body?.string() ?: ""
+                        response2.close()
+                        
+                        body.lines()
+                            .map { it.trim() }
+                            .filter { 
+                                it.isNotBlank() && 
+                                !it.startsWith("error") && 
+                                !it.contains("API count exceeded") &&
+                                !it.contains("No DNS A records") &&
+                                !isJunkDomain(it)
+                            }
+                            .forEach { domains.add(it) }
+                    }
+                } catch (e: Exception) { }
+            }
+            
         } catch (e: Exception) {
             // Hata durumunda boş liste
         }
         
         domains.distinct()
+    }
+    
+    /**
+     * Saçma/alakasız domainleri filtrele
+     */
+    private fun isJunkDomain(domain: String): Boolean {
+        val junkPatterns = listOf(
+            "microsoft", "msn", "live.com", "outlook", "hotmail",
+            "google", "facebook", "twitter", "instagram", "youtube",
+            "amazon", "cloudflare", "akamai", "fastly",
+            "github", "stackoverflow", "wikipedia",
+            "apple.com", "icloud", "yahoo",
+            ".gov", ".edu", ".mil",
+            "cdn.", "static.", "assets.",
+            "analytics", "tracking", "ads.",
+            "mail.", "smtp.", "pop.", "imap.",
+            "ns1.", "ns2.", "dns.",
+            "rapiddns", "viewdns", "hackertarget"
+        )
+        
+        val lowerDomain = domain.lowercase()
+        return junkPatterns.any { lowerDomain.contains(it) }
     }
     
     /**
