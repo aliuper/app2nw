@@ -47,14 +47,14 @@ class SideServerViewModel @Inject constructor(
     }
 
     /**
-     * Reverse IP Lookup + IPTV Tespiti ile tam tarama başlat
-     * Kullanıcı adı/şifre opsiyonel - sadece domain ile de çalışır
+     * AŞAMA 1: Domain Listele
+     * Sadece aynı IP'deki domainleri bul ve listele (IPTV testi yapmadan)
      */
-    fun startScan() {
+    fun findDomains() {
         val currentState = _state.value
         
         if (currentState.originalLink.isBlank()) {
-            _state.update { it.copy(errorMessage = "IPTV linkini veya domain adresini girin") }
+            _state.update { it.copy(errorMessage = "Domain adresini girin") }
             return
         }
         
@@ -64,7 +64,9 @@ class SideServerViewModel @Inject constructor(
                 it.copy(
                     isScanning = true, 
                     progressPercent = 0, 
-                    progressText = "Başlatılıyor...",
+                    progressText = "Domain aranıyor...",
+                    discoveredDomains = emptyList(),
+                    resolvedIP = "",
                     results = emptyList(),
                     activeCount = 0,
                     errorMessage = null
@@ -72,9 +74,68 @@ class SideServerViewModel @Inject constructor(
             }
             
             try {
-                // Yeni fullScan metodu - Reverse IP + IPTV Tespiti
-                val results = sideServerScanner.fullScan(
-                    originalUrl = currentState.originalLink,
+                // Sadece domain listele - IPTV testi yapma
+                val domains = sideServerScanner.findDomainsOnly(
+                    originalUrl = currentState.originalLink
+                ) { status, current, total, ip, domainList ->
+                    _state.update { state ->
+                        state.copy(
+                            progressPercent = current,
+                            progressText = status,
+                            resolvedIP = ip,
+                            discoveredDomains = domainList
+                        )
+                    }
+                }
+                
+                _state.update { 
+                    it.copy(
+                        isScanning = false,
+                        progressPercent = 100,
+                        progressText = "✅ ${domains.size} domain bulundu! Test etmek için 'IPTV Test Et' butonuna tıklayın.",
+                        discoveredDomains = domains
+                    )
+                }
+                
+            } catch (e: Exception) {
+                _state.update { 
+                    it.copy(
+                        isScanning = false,
+                        errorMessage = "Hata: ${e.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * AŞAMA 2: IPTV Test Et
+     * Bulunan domainleri IPTV için test et
+     */
+    fun testDomains() {
+        val currentState = _state.value
+        
+        if (currentState.discoveredDomains.isEmpty()) {
+            _state.update { it.copy(errorMessage = "Önce domain listeleyin") }
+            return
+        }
+        
+        scanJob?.cancel()
+        scanJob = viewModelScope.launch {
+            _state.update { 
+                it.copy(
+                    isTesting = true, 
+                    progressPercent = 0, 
+                    progressText = "IPTV testi başlıyor...",
+                    results = emptyList(),
+                    activeCount = 0,
+                    errorMessage = null
+                )
+            }
+            
+            try {
+                val results = sideServerScanner.testDomainsForIptv(
+                    domains = currentState.discoveredDomains,
                     username = currentState.username,
                     password = currentState.password
                 ) { status, current, total, result ->
@@ -103,16 +164,16 @@ class SideServerViewModel @Inject constructor(
                 
                 _state.update { 
                     it.copy(
-                        isScanning = false,
+                        isTesting = false,
                         progressPercent = 100,
-                        progressText = "✅ Tamamlandı! ${it.activeCount} aktif sunucu bulundu"
+                        progressText = "✅ Test tamamlandı! ${it.activeCount} IPTV sunucusu bulundu"
                     )
                 }
                 
             } catch (e: Exception) {
                 _state.update { 
                     it.copy(
-                        isScanning = false,
+                        isTesting = false,
                         errorMessage = "Hata: ${e.message}"
                     )
                 }
@@ -126,6 +187,7 @@ class SideServerViewModel @Inject constructor(
         _state.update { 
             it.copy(
                 isScanning = false,
+                isTesting = false,
                 progressText = "Durduruldu"
             )
         }
@@ -137,6 +199,8 @@ class SideServerViewModel @Inject constructor(
                 originalLink = "",
                 username = "",
                 password = "",
+                discoveredDomains = emptyList(),
+                resolvedIP = "",
                 results = emptyList(),
                 activeCount = 0,
                 progressPercent = 0,
@@ -150,6 +214,10 @@ class SideServerViewModel @Inject constructor(
         return _state.value.results
             .filter { it.isActive }
             .joinToString("\n") { it.m3uLink }
+    }
+    
+    fun copyAllDomains(): String {
+        return _state.value.discoveredDomains.joinToString("\n")
     }
 
     override fun onCleared() {

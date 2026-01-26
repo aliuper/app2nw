@@ -754,6 +754,131 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
         return emptyList()
     }
 
+    /**
+     * AŞAMA 1: Sadece domain listele (IPTV testi yapmadan)
+     * Aynı IP'deki tüm domainleri bul ve listele
+     */
+    suspend fun findDomainsOnly(
+        originalUrl: String,
+        onProgress: (status: String, current: Int, total: Int, ip: String, domains: List<String>) -> Unit
+    ): List<String> = withContext(Dispatchers.IO) {
+        val discoveredDomains = mutableSetOf<String>()
+        var resolvedIP = ""
+        
+        try {
+            // 1. Host adını ayıkla
+            val originalHost = extractHostFromInput(originalUrl)
+            if (originalHost.isBlank()) {
+                onProgress("❌ Geçersiz URL veya domain", 0, 100, "", emptyList())
+                return@withContext emptyList()
+            }
+            
+            discoveredDomains.add(originalHost)
+            onProgress("📍 Host: $originalHost", 5, 100, "", discoveredDomains.toList())
+            
+            // 2. IP adresini çöz
+            onProgress("🔍 IP adresi çözümleniyor...", 10, 100, "", discoveredDomains.toList())
+            
+            val allIPs = resolveAllIPs(originalHost)
+            if (allIPs.isEmpty()) {
+                onProgress("❌ IP çözümlenemedi", 10, 100, "", discoveredDomains.toList())
+                return@withContext discoveredDomains.toList()
+            }
+            
+            resolvedIP = allIPs.first()
+            
+            // Cloudflare kontrolü
+            val isCloudflare = allIPs.all { isCloudflareIP(it) }
+            if (isCloudflare) {
+                onProgress("⚠️ Cloudflare tespit edildi! Gerçek IP aranıyor...", 15, 100, resolvedIP, discoveredDomains.toList())
+                
+                // DNS geçmişinden gerçek IP bul
+                val historicalIPs = getDnsHistory(originalHost)
+                val realIPs = historicalIPs.filter { !isCloudflareIP(it) }
+                
+                if (realIPs.isNotEmpty()) {
+                    resolvedIP = realIPs.first()
+                    onProgress("🎯 Gerçek IP bulundu: $resolvedIP", 20, 100, resolvedIP, discoveredDomains.toList())
+                }
+            } else {
+                onProgress("📌 IP: $resolvedIP", 15, 100, resolvedIP, discoveredDomains.toList())
+            }
+            
+            // 3. Reverse IP Lookup
+            onProgress("🔄 Aynı IP'deki domainler aranıyor...", 25, 100, resolvedIP, discoveredDomains.toList())
+            
+            for (ip in allIPs.filter { !isCloudflareIP(it) }.take(3)) {
+                val reverseResults = reverseIpLookup(ip)
+                if (reverseResults.isNotEmpty()) {
+                    discoveredDomains.addAll(reverseResults)
+                    onProgress("📋 $ip → ${reverseResults.size} domain bulundu", 40, 100, resolvedIP, discoveredDomains.toList())
+                }
+            }
+            
+            // 4. Subdomain keşfi
+            onProgress("🌐 Subdomain keşfi yapılıyor...", 60, 100, resolvedIP, discoveredDomains.toList())
+            
+            val subdomains = discoverSubdomains(originalHost)
+            if (subdomains.isNotEmpty()) {
+                discoveredDomains.addAll(subdomains)
+                onProgress("🎉 ${subdomains.size} subdomain bulundu", 80, 100, resolvedIP, discoveredDomains.toList())
+            }
+            
+            onProgress("✅ Toplam ${discoveredDomains.size} domain bulundu", 100, 100, resolvedIP, discoveredDomains.toList())
+            
+        } catch (e: Exception) {
+            onProgress("❌ Hata: ${e.message}", 100, 100, resolvedIP, discoveredDomains.toList())
+        }
+        
+        discoveredDomains.toList()
+    }
+
+    /**
+     * AŞAMA 2: Bulunan domainleri IPTV için test et
+     */
+    suspend fun testDomainsForIptv(
+        domains: List<String>,
+        username: String,
+        password: String,
+        onProgress: (status: String, current: Int, total: Int, result: SideServerScanner.ScanResult?) -> Unit
+    ): List<SideServerScanner.ScanResult> = withContext(Dispatchers.IO) {
+        val results = mutableListOf<SideServerScanner.ScanResult>()
+        val totalDomains = domains.size
+        var checked = 0
+        
+        for (domain in domains) {
+            checked++
+            val progress = (checked * 100) / totalDomains.coerceAtLeast(1)
+            onProgress("🔎 IPTV Test: $domain ($checked/$totalDomains)", progress, 100, null)
+            
+            // IPTV sunucusu mu kontrol et
+            val iptvResult = checkIfIptvServer(domain)
+            
+            if (iptvResult != null) {
+                // IPTV sunucusu bulundu
+                if (username.isNotBlank() && password.isNotBlank()) {
+                    // Credentials varsa test et
+                    val testResult = testSingleServer(iptvResult.serverUrl, username, password)
+                    if (results.none { it.serverUrl == testResult.serverUrl }) {
+                        results.add(testResult)
+                        onProgress("${testResult.statusText}: ${testResult.serverUrl}", progress, 100, testResult)
+                    }
+                } else {
+                    // Credentials yoksa sadece IPTV panel olarak ekle
+                    if (results.none { it.serverUrl == iptvResult.serverUrl }) {
+                        results.add(iptvResult)
+                        onProgress("🎯 IPTV Panel: ${iptvResult.serverUrl}", progress, 100, iptvResult)
+                    }
+                }
+            }
+        }
+        
+        val activeCount = results.count { it.isActive }
+        onProgress("✅ Test tamamlandı! $activeCount IPTV sunucusu bulundu", 100, 100, null)
+        
+        results.sortedByDescending { it.isActive }
+    }
+
     private fun extractJsonValue(json: String, key: String): String? {
         val patterns = listOf(
             "\"$key\"\\s*:\\s*\"([^\"]+)\"",

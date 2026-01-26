@@ -95,12 +95,12 @@ fun SideServerRoute(
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Text(
-                        text = "🔍 Reverse IP Lookup + IPTV Tespiti",
+                        text = "🔍 İki Aşamalı Yan Sunucu Bulucu",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Sadece domain girerek aynı IP'deki tüm IPTV panellerini bulun. Kullanıcı adı/şifre opsiyoneldir - girerseniz aktiflik testi de yapılır.",
+                        text = "1️⃣ Domain Listele: Aynı IP'deki tüm domainleri bul\n2️⃣ IPTV Test Et: Bulunan domainlerden IPTV olanları tespit et",
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
@@ -108,21 +108,21 @@ fun SideServerRoute(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Orijinal Link Girişi - BasicTextField ile donma sorunu çözüldü
+            // Domain Girişi
             OutlinedTextField(
                 value = state.originalLink,
                 onValueChange = { viewModel.updateOriginalLink(it) },
-                label = { Text("IPTV Linki veya Domain") },
-                placeholder = { Text("example.com:8080 veya http://...") },
+                label = { Text("Domain veya IPTV Linki") },
+                placeholder = { Text("example.com veya http://example.com:8080") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = false,
                 maxLines = 2,
-                enabled = !state.isScanning
+                enabled = !state.isScanning && !state.isTesting
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Credentials (Opsiyonel)
+            // Credentials (Opsiyonel - sadece IPTV testi için)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -133,7 +133,7 @@ fun SideServerRoute(
                     label = { Text("Kullanıcı Adı (opsiyonel)") },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
-                    enabled = !state.isScanning
+                    enabled = !state.isScanning && !state.isTesting
                 )
                 OutlinedTextField(
                     value = state.password,
@@ -141,7 +141,7 @@ fun SideServerRoute(
                     label = { Text("Şifre (opsiyonel)") },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
-                    enabled = !state.isScanning
+                    enabled = !state.isScanning && !state.isTesting
                 )
             }
 
@@ -162,11 +162,12 @@ fun SideServerRoute(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            // Kontrol Butonları
+            // Kontrol Butonları - İki Aşamalı
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // AŞAMA 1: Domain Listele
                 if (state.isScanning) {
                     Button(
                         onClick = { viewModel.stopScan() },
@@ -174,33 +175,59 @@ fun SideServerRoute(
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(Icons.Default.Stop, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text("Durdur")
                     }
                 } else {
                     Button(
-                        onClick = { viewModel.startScan() },
-                        modifier = Modifier.weight(1f)
+                        onClick = { viewModel.findDomains() },
+                        modifier = Modifier.weight(1f),
+                        enabled = !state.isTesting
                     ) {
                         Icon(Icons.Default.Search, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Yan Sunucu Ara")
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("1. Domain Bul")
+                    }
+                }
+                
+                // AŞAMA 2: IPTV Test Et
+                if (state.isTesting) {
+                    Button(
+                        onClick = { viewModel.stopScan() },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.Stop, contentDescription = null)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Durdur")
+                    }
+                } else {
+                    Button(
+                        onClick = { viewModel.testDomains() },
+                        modifier = Modifier.weight(1f),
+                        enabled = state.discoveredDomains.isNotEmpty() && !state.isScanning,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (state.discoveredDomains.isNotEmpty()) 
+                                Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Text("2. IPTV Test")
                     }
                 }
                 
                 OutlinedButton(
                     onClick = { viewModel.clearResults() },
-                    enabled = !state.isScanning
+                    enabled = !state.isScanning && !state.isTesting
                 ) {
                     Text("Temizle")
                 }
             }
 
             // Progress
-            if (state.isScanning || state.progressText.isNotBlank()) {
+            if (state.isScanning || state.isTesting || state.progressText.isNotBlank()) {
                 Spacer(modifier = Modifier.height(12.dp))
                 
-                if (state.isScanning) {
+                if (state.isScanning || state.isTesting) {
                     LinearProgressIndicator(
                         progress = { state.progressPercent / 100f },
                         modifier = Modifier.fillMaxWidth()
@@ -213,13 +240,72 @@ fun SideServerRoute(
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
+            
+            // IP Bilgisi
+            if (state.resolvedIP.isNotBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "📌 Çözümlenen IP: ${state.resolvedIP}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(8.dp)
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Sonuçlar
+            // AŞAMA 1 Sonuçları: Bulunan Domainler
+            if (state.discoveredDomains.isNotEmpty() && state.results.isEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "📋 Bulunan Domainler (${state.discoveredDomains.size})",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    IconButton(onClick = {
+                        val domains = viewModel.copyAllDomains()
+                        clipboardManager.setText(AnnotatedString(domains))
+                        Toast.makeText(context, "${state.discoveredDomains.size} domain kopyalandı", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Icon(Icons.Default.ContentCopy, contentDescription = "Kopyala")
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(state.discoveredDomains) { domain ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                        ) {
+                            Text(
+                                text = domain,
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.padding(12.dp),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+            
+            // AŞAMA 2 Sonuçları: IPTV Test Sonuçları
             if (state.results.isNotEmpty()) {
                 Text(
-                    text = "🎯 Bulunan Sunucular (${state.activeCount} aktif / ${state.results.size} toplam)",
+                    text = "🎯 IPTV Sunucuları (${state.activeCount} aktif / ${state.results.size} toplam)",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -230,7 +316,6 @@ fun SideServerRoute(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Önce aktif olanları göster
                     val sortedResults = state.results.sortedByDescending { it.isActive }
                     
                     items(sortedResults) { result ->
