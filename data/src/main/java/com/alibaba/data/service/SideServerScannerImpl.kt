@@ -14,14 +14,16 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Yan Sunucu Bulucu - Reverse IP Lookup + IPTV Tespiti
+ * Yan Sunucu Bulucu - Profesyonel IPTV Panel Keşfi
  * 
- * Yöntem:
- * 1. Domain'in IP adresini çöz
- * 2. HackerTarget API ile aynı IP'deki tüm domainleri bul
- * 3. Bulunan domainleri IPTV portları için tara
- * 4. IPTV panel tespiti yap (player_api.php, get.php varlığı)
- * 5. Credentials ile test et
+ * Yöntem (check-host.net & viewdns.info mantığı):
+ * 1. Host adını ayıkla (URL veya domain)
+ * 2. DNS A/AAAA kayıtlarını çöz (tüm IP'leri bul - cluster/yedek tespiti)
+ * 3. HTTP Header analizi (X-Served-By, Server, Via - backend ipuçları)
+ * 4. Reverse IP Lookup (aynı IP'deki tüm domainler)
+ * 5. Subdomain keşfi (srv, edge, backup, lb, cdn pattern'leri)
+ * 6. IPTV panel tespiti (player_api.php, get.php)
+ * 7. Credentials ile aktiflik testi
  */
 @Singleton
 class SideServerScannerImpl @Inject constructor() : SideServerScanner {
@@ -177,6 +179,126 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
         }
     }
 
+    // Subdomain keşfi için yaygın pattern'ler
+    private val subdomainPatterns = listOf(
+        "srv", "srv1", "srv2", "srv3", "srv4", "srv5",
+        "server", "server1", "server2", "server3",
+        "edge", "edge1", "edge2", "edge3",
+        "cdn", "cdn1", "cdn2", "cdn3",
+        "lb", "lb1", "lb2",
+        "backup", "backup1", "backup2",
+        "panel", "panel1", "panel2",
+        "stream", "stream1", "stream2",
+        "tv", "tv1", "tv2",
+        "iptv", "iptv1", "iptv2",
+        "live", "live1", "live2",
+        "m3u", "api", "player",
+        "node", "node1", "node2", "node3",
+        "pool", "pool1", "pool2"
+    )
+
+    /**
+     * DNS A kayıtlarını çöz - TÜM IP'leri bul (cluster/yedek tespiti)
+     * Birden fazla IP = muhtemel cluster / yedek sunucu
+     */
+    suspend fun resolveAllIPs(hostname: String): List<String> = withContext(Dispatchers.IO) {
+        val ips = mutableListOf<String>()
+        try {
+            val addresses = InetAddress.getAllByName(hostname)
+            addresses.forEach { addr ->
+                addr.hostAddress?.let { ips.add(it) }
+            }
+        } catch (e: Exception) {
+            // Tek IP dene
+            try {
+                InetAddress.getByName(hostname).hostAddress?.let { ips.add(it) }
+            } catch (e2: Exception) {
+                // IP bulunamadı
+            }
+        }
+        ips.distinct()
+    }
+
+    /**
+     * HTTP Header analizi - backend ipuçları bul
+     * X-Served-By, Server, Via, X-Cache gibi header'lar yedek sunucu bilgisi verebilir
+     */
+    suspend fun analyzeHttpHeaders(url: String): List<String> = withContext(Dispatchers.IO) {
+        val discoveredHosts = mutableListOf<String>()
+        
+        try {
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                .head()
+                .build()
+            
+            val response = withTimeoutOrNull(8000L) {
+                httpClient.newCall(request).execute()
+            }
+            
+            if (response != null) {
+                // Backend ipuçları içeren header'lar
+                val interestingHeaders = listOf(
+                    "X-Served-By", "X-Backend", "X-Server", "X-Node",
+                    "Server", "Via", "X-Cache", "X-Forwarded-Server",
+                    "X-Upstream", "X-Real-Server"
+                )
+                
+                for (headerName in interestingHeaders) {
+                    val headerValue = response.header(headerName)
+                    if (headerValue != null) {
+                        // srv1, node-23, lb-2 gibi pattern'leri çıkar
+                        val hostPatterns = Regex("[a-zA-Z0-9-]+\\.[a-zA-Z0-9.-]+|[a-zA-Z]+-?\\d+")
+                        hostPatterns.findAll(headerValue).forEach { match ->
+                            val potential = match.value.lowercase()
+                            if (potential.length > 3 && !potential.startsWith("http")) {
+                                discoveredHosts.add(potential)
+                            }
+                        }
+                    }
+                }
+                response.close()
+            }
+        } catch (e: Exception) {
+            // Header analizi başarısız
+        }
+        
+        discoveredHosts.distinct()
+    }
+
+    /**
+     * Subdomain keşfi - yaygın IPTV subdomain pattern'lerini dene
+     */
+    suspend fun discoverSubdomains(baseDomain: String): List<String> = withContext(Dispatchers.IO) {
+        val discovered = mutableListOf<String>()
+        
+        // Base domain'i çıkar (örn: tgr2024.live)
+        val parts = baseDomain.split(".")
+        val rootDomain = if (parts.size >= 2) {
+            parts.takeLast(2).joinToString(".")
+        } else {
+            baseDomain
+        }
+        
+        for (prefix in subdomainPatterns) {
+            val subdomain = "$prefix.$rootDomain"
+            try {
+                // DNS sorgusu yap
+                val ip = withTimeoutOrNull(2000L) {
+                    InetAddress.getByName(subdomain).hostAddress
+                }
+                if (ip != null) {
+                    discovered.add(subdomain)
+                }
+            } catch (e: Exception) {
+                // Bu subdomain yok
+            }
+        }
+        
+        discovered.distinct()
+    }
+
     /**
      * Reverse IP Lookup ile aynı IP'deki domainleri bul
      * HackerTarget API kullanır (ücretsiz, günlük 50 sorgu)
@@ -283,8 +405,16 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
     }
 
     /**
-     * Tam tarama: Reverse IP + IPTV Tespiti
-     * Kullanıcı adı/şifre opsiyonel - sadece domain ile de çalışır
+     * Profesyonel Tam Tarama - check-host.net & viewdns.info mantığı
+     * 
+     * Adımlar:
+     * 1. Host adını ayıkla
+     * 2. Tüm A kayıtlarını çöz (cluster tespiti)
+     * 3. HTTP header analizi (backend ipuçları)
+     * 4. Subdomain keşfi
+     * 5. Reverse IP Lookup (her IP için)
+     * 6. IPTV panel tespiti
+     * 7. Credentials ile aktiflik testi
      */
     suspend fun fullScan(
         originalUrl: String,
@@ -293,9 +423,13 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
         onProgress: (status: String, current: Int, total: Int, result: SideServerScanner.ScanResult?) -> Unit
     ): List<SideServerScanner.ScanResult> = withContext(Dispatchers.IO) {
         val results = mutableListOf<SideServerScanner.ScanResult>()
+        val discoveredHosts = mutableSetOf<String>()
+        val discoveredIPs = mutableSetOf<String>()
         
         try {
-            // 1. Orijinal URL'den host çıkar
+            // ═══════════════════════════════════════════════════════════════
+            // ADIM 1: Host adını ayıkla
+            // ═══════════════════════════════════════════════════════════════
             val originalHost = extractHostFromInput(originalUrl)
             if (originalHost.isBlank()) {
                 onProgress("❌ Geçersiz URL veya domain", 0, 100, null)
@@ -303,37 +437,99 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
             }
             
             val originalPort = extractPortFromInput(originalUrl)
+            discoveredHosts.add(originalHost)
             
-            onProgress("🔍 IP adresi çözümleniyor: $originalHost", 0, 100, null)
+            onProgress("📍 Host: $originalHost:$originalPort", 0, 100, null)
             
-            // 2. IP adresini çöz
-            val ip = try {
-                InetAddress.getByName(originalHost).hostAddress
-            } catch (e: Exception) {
-                onProgress("❌ IP çözümlenemedi: $originalHost", 0, 100, null)
+            // ═══════════════════════════════════════════════════════════════
+            // ADIM 2: Tüm A kayıtlarını çöz (cluster/yedek tespiti)
+            // ═══════════════════════════════════════════════════════════════
+            onProgress("🔍 DNS A kayıtları çözümleniyor...", 5, 100, null)
+            
+            val allIPs = resolveAllIPs(originalHost)
+            if (allIPs.isEmpty()) {
+                onProgress("❌ IP çözümlenemedi: $originalHost", 5, 100, null)
                 return@withContext results
             }
             
-            onProgress("🌐 Reverse IP Lookup yapılıyor: $ip", 5, 100, null)
+            discoveredIPs.addAll(allIPs)
             
-            // 3. Reverse IP Lookup
-            val domains = reverseIpLookup(ip)
-            
-            if (domains.isEmpty()) {
-                onProgress("⚠️ Aynı IP'de başka domain bulunamadı, port taraması yapılıyor...", 10, 100, null)
+            if (allIPs.size > 1) {
+                onProgress("🎯 ${allIPs.size} farklı IP bulundu! (Cluster/Yedek)", 8, 100, null)
             } else {
-                onProgress("🎉 ${domains.size} domain bulundu! IPTV taraması başlıyor...", 10, 100, null)
+                onProgress("📌 IP: ${allIPs.first()}", 8, 100, null)
             }
             
-            // 4. Her domain için IPTV kontrolü
-            val allHosts = (domains + originalHost).distinct()
-            val totalChecks = allHosts.size
+            // ═══════════════════════════════════════════════════════════════
+            // ADIM 3: HTTP Header analizi (backend ipuçları)
+            // ═══════════════════════════════════════════════════════════════
+            onProgress("🔎 HTTP header analizi yapılıyor...", 10, 100, null)
+            
+            val headerUrl = "http://$originalHost:$originalPort/"
+            val headerHints = analyzeHttpHeaders(headerUrl)
+            
+            if (headerHints.isNotEmpty()) {
+                onProgress("💡 Header'dan ${headerHints.size} ipucu bulundu", 12, 100, null)
+                // Header'dan bulunan host'ları ekle
+                headerHints.forEach { hint ->
+                    if (hint.contains(".")) {
+                        discoveredHosts.add(hint)
+                    } else {
+                        // srv1, node-2 gibi prefix'ler - base domain ile birleştir
+                        val parts = originalHost.split(".")
+                        if (parts.size >= 2) {
+                            val rootDomain = parts.takeLast(2).joinToString(".")
+                            discoveredHosts.add("$hint.$rootDomain")
+                        }
+                    }
+                }
+            }
+            
+            // ═══════════════════════════════════════════════════════════════
+            // ADIM 4: Subdomain keşfi
+            // ═══════════════════════════════════════════════════════════════
+            onProgress("🌐 Subdomain keşfi yapılıyor...", 15, 100, null)
+            
+            val subdomains = discoverSubdomains(originalHost)
+            if (subdomains.isNotEmpty()) {
+                onProgress("🎉 ${subdomains.size} subdomain bulundu!", 20, 100, null)
+                discoveredHosts.addAll(subdomains)
+                
+                // Subdomain'lerin IP'lerini de çöz
+                for (sub in subdomains) {
+                    try {
+                        val subIPs = resolveAllIPs(sub)
+                        discoveredIPs.addAll(subIPs)
+                    } catch (e: Exception) { }
+                }
+            }
+            
+            // ═══════════════════════════════════════════════════════════════
+            // ADIM 5: Reverse IP Lookup (her IP için)
+            // ═══════════════════════════════════════════════════════════════
+            onProgress("🔄 Reverse IP Lookup yapılıyor (${discoveredIPs.size} IP)...", 25, 100, null)
+            
+            for (ip in discoveredIPs.toList()) {
+                val reverseResults = reverseIpLookup(ip)
+                if (reverseResults.isNotEmpty()) {
+                    onProgress("📋 $ip → ${reverseResults.size} domain", 30, 100, null)
+                    discoveredHosts.addAll(reverseResults)
+                }
+            }
+            
+            onProgress("📊 Toplam ${discoveredHosts.size} benzersiz host bulundu", 35, 100, null)
+            
+            // ═══════════════════════════════════════════════════════════════
+            // ADIM 6: IPTV Panel Tespiti
+            // ═══════════════════════════════════════════════════════════════
+            val allHostsList = discoveredHosts.toList()
+            val totalChecks = allHostsList.size
             var checked = 0
             
-            for (host in allHosts) {
+            for (host in allHostsList) {
                 checked++
-                val progress = 10 + ((checked * 70) / totalChecks.coerceAtLeast(1))
-                onProgress("🔎 Taraniyor: $host ($checked/$totalChecks)", progress, 100, null)
+                val progress = 35 + ((checked * 50) / totalChecks.coerceAtLeast(1))
+                onProgress("🔎 IPTV Tarama: $host ($checked/$totalChecks)", progress, 100, null)
                 
                 // IPTV sunucusu mu kontrol et
                 val iptvResult = checkIfIptvServer(host)
@@ -343,23 +539,28 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
                     if (username.isNotBlank() && password.isNotBlank()) {
                         // Credentials varsa test et
                         val testResult = testSingleServer(iptvResult.serverUrl, username, password)
-                        results.add(testResult)
-                        onProgress("${testResult.statusText}: ${testResult.serverUrl}", progress, 100, testResult)
+                        if (results.none { it.serverUrl == testResult.serverUrl }) {
+                            results.add(testResult)
+                            onProgress("${testResult.statusText}: ${testResult.serverUrl}", progress, 100, testResult)
+                        }
                     } else {
                         // Credentials yoksa sadece IPTV panel olarak ekle
-                        results.add(iptvResult)
-                        onProgress("🎯 IPTV Panel: ${iptvResult.serverUrl}", progress, 100, iptvResult)
+                        if (results.none { it.serverUrl == iptvResult.serverUrl }) {
+                            results.add(iptvResult)
+                            onProgress("🎯 IPTV Panel: ${iptvResult.serverUrl}", progress, 100, iptvResult)
+                        }
                     }
                 }
             }
             
-            // 5. Orijinal sunucuyu farklı portlarla da dene
-            onProgress("🔌 Alternatif portlar deneniyor...", 85, 100, null)
+            // ═══════════════════════════════════════════════════════════════
+            // ADIM 7: Orijinal host'u farklı portlarla dene
+            // ═══════════════════════════════════════════════════════════════
+            onProgress("🔌 Alternatif portlar deneniyor...", 90, 100, null)
             
             for (port in iptvPorts) {
                 if (port != originalPort) {
                     val altUrl = "http://$originalHost:$port"
-                    // Zaten taranmış mı kontrol et
                     if (results.none { it.serverUrl == altUrl }) {
                         val iptvCheck = checkIfIptvServer(originalHost, port)
                         if (iptvCheck != null) {
@@ -367,11 +568,11 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
                                 val testResult = testSingleServer(altUrl, username, password)
                                 if (testResult.isActive) {
                                     results.add(testResult)
-                                    onProgress("${testResult.statusText}: $altUrl", 90, 100, testResult)
+                                    onProgress("${testResult.statusText}: $altUrl", 95, 100, testResult)
                                 }
                             } else {
                                 results.add(iptvCheck)
-                                onProgress("🎯 IPTV Panel: $altUrl", 90, 100, iptvCheck)
+                                onProgress("🎯 IPTV Panel: $altUrl", 95, 100, iptvCheck)
                             }
                         }
                     }
@@ -379,7 +580,7 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
             }
             
             val activeCount = results.count { it.isActive }
-            onProgress("✅ Tarama tamamlandı! $activeCount IPTV sunucusu bulundu", 100, 100, null)
+            onProgress("✅ Tarama tamamlandı! $activeCount IPTV sunucusu bulundu (${discoveredHosts.size} host tarandı)", 100, 100, null)
             
         } catch (e: Exception) {
             onProgress("❌ Hata: ${e.message}", 100, 100, null)
