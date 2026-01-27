@@ -304,72 +304,78 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
     
     /**
      * Reverse IP Lookup ile aynı IP'deki domainleri bul
-     * RapidDNS.io kullanır (8 milyar DNS kaydı, ücretsiz)
+     * crt.sh (Certificate Transparency) + HackerTarget kullanır
      */
     suspend fun reverseIpLookup(ipOrDomain: String): List<String> = withContext(Dispatchers.IO) {
         val domains = mutableListOf<String>()
         
         try {
-            // Domain ise IP'ye çevir
+            // Domain ise, önce crt.sh'den subdomain/ilişkili domain bul
+            val isIp = ipOrDomain.matches(Regex("\\d+\\.\\d+\\.\\d+\\.\\d+"))
+            
+            if (!isIp) {
+                // 1. crt.sh - Certificate Transparency (SSL sertifikalarından domain bul)
+                // Bu API gerçekten çalışıyor ve ücretsiz!
+                try {
+                    val baseDomain = extractBaseDomain(ipOrDomain)
+                    val crtUrl = "https://crt.sh/?q=%25.$baseDomain&output=json"
+                    val request1 = Request.Builder()
+                        .url(crtUrl)
+                        .header("User-Agent", mobileUserAgent)
+                        .get()
+                        .build()
+                    
+                    val response1 = withTimeoutOrNull(20000L) {
+                        httpClient.newCall(request1).execute()
+                    }
+                    
+                    if (response1 != null && response1.isSuccessful) {
+                        val body = response1.body?.string() ?: ""
+                        response1.close()
+                        
+                        // JSON'dan domain'leri çıkar
+                        // "name_value":"*.example.com\nexample.com" formatında
+                        val namePattern = Regex("\"name_value\"\\s*:\\s*\"([^\"]+)\"")
+                        namePattern.findAll(body).forEach { match ->
+                            val names = match.groupValues[1]
+                            names.split("\\n", "\n").forEach { name ->
+                                val cleanName = name.trim().removePrefix("*.")
+                                if (cleanName.isNotBlank() && 
+                                    cleanName.contains(".") &&
+                                    !cleanName.contains("@") &&
+                                    !isJunkDomain(cleanName)) {
+                                    domains.add(cleanName.lowercase())
+                                }
+                            }
+                        }
+                        
+                        // common_name alanından da çıkar
+                        val cnPattern = Regex("\"common_name\"\\s*:\\s*\"([^\"]+)\"")
+                        cnPattern.findAll(body).forEach { match ->
+                            val cn = match.groupValues[1].trim().removePrefix("*.")
+                            if (cn.isNotBlank() && 
+                                cn.contains(".") &&
+                                !cn.contains("@") &&
+                                !isJunkDomain(cn)) {
+                                domains.add(cn.lowercase())
+                            }
+                        }
+                    }
+                } catch (e: Exception) { }
+            }
+            
+            // 2. IP'yi çöz ve HackerTarget ile reverse lookup yap
             val ip = try {
-                if (ipOrDomain.matches(Regex("\\d+\\.\\d+\\.\\d+\\.\\d+"))) {
+                if (isIp) {
                     ipOrDomain
                 } else {
                     InetAddress.getByName(ipOrDomain).hostAddress
                 }
             } catch (e: Exception) {
-                return@withContext domains
+                null
             }
             
-            // 1. RapidDNS.io - En güvenilir kaynak (8 milyar DNS kaydı)
-            try {
-                val rapidDnsUrl = "https://rapiddns.io/sameip/$ip?full=1"
-                val request1 = Request.Builder()
-                    .url(rapidDnsUrl)
-                    .header("User-Agent", mobileUserAgent)
-                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                    .header("Accept-Language", "en-US,en;q=0.5")
-                    .header("Connection", "keep-alive")
-                    .get()
-                    .build()
-                
-                val response1 = withTimeoutOrNull(15000L) {
-                    httpClient.newCall(request1).execute()
-                }
-                
-                if (response1 != null && response1.isSuccessful) {
-                    val body = response1.body?.string() ?: ""
-                    response1.close()
-                    
-                    // HTML'den domain'leri çıkar - tablo satırlarından
-                    // <td>domain.com</td> formatında
-                    val domainPattern = Regex("<td[^>]*>([a-zA-Z0-9][-a-zA-Z0-9]*\\.[a-zA-Z0-9][-a-zA-Z0-9.]*)</td>")
-                    domainPattern.findAll(body).forEach { match ->
-                        val domain = match.groupValues[1].lowercase().trim()
-                        if (domain.isNotBlank() && 
-                            domain.contains(".") &&
-                            !domain.endsWith(".arpa") &&
-                            !isJunkDomain(domain)) {
-                            domains.add(domain)
-                        }
-                    }
-                    
-                    // Alternatif pattern - link formatı
-                    val linkPattern = Regex("href=\"[^\"]*\">([a-zA-Z0-9][-a-zA-Z0-9]*\\.[a-zA-Z0-9][-a-zA-Z0-9.]*)</a>")
-                    linkPattern.findAll(body).forEach { match ->
-                        val domain = match.groupValues[1].lowercase().trim()
-                        if (domain.isNotBlank() && 
-                            domain.contains(".") &&
-                            !domain.endsWith(".arpa") &&
-                            !isJunkDomain(domain)) {
-                            domains.add(domain)
-                        }
-                    }
-                }
-            } catch (e: Exception) { }
-            
-            // 2. HackerTarget (yedek)
-            if (domains.isEmpty()) {
+            if (ip != null) {
                 try {
                     val hackerTargetUrl = "https://api.hackertarget.com/reverseiplookup/?q=$ip"
                     val request2 = Request.Builder()
@@ -387,12 +393,13 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
                         response2.close()
                         
                         body.lines()
-                            .map { it.trim() }
+                            .map { it.trim().lowercase() }
                             .filter { 
                                 it.isNotBlank() && 
+                                it.contains(".") &&
                                 !it.startsWith("error") && 
-                                !it.contains("API count exceeded") &&
-                                !it.contains("No DNS A records") &&
+                                !it.contains("api count exceeded") &&
+                                !it.contains("no dns") &&
                                 !isJunkDomain(it)
                             }
                             .forEach { domains.add(it) }
@@ -405,6 +412,18 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
         }
         
         domains.distinct()
+    }
+    
+    /**
+     * Domain'den base domain çıkar (subdomain'leri kaldır)
+     */
+    private fun extractBaseDomain(domain: String): String {
+        val parts = domain.lowercase().split(".")
+        return if (parts.size >= 2) {
+            "${parts[parts.size - 2]}.${parts[parts.size - 1]}"
+        } else {
+            domain
+        }
     }
     
     /**
@@ -422,7 +441,8 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
             "analytics", "tracking", "ads.",
             "mail.", "smtp.", "pop.", "imap.",
             "ns1.", "ns2.", "dns.",
-            "rapiddns", "viewdns", "hackertarget"
+            "rapiddns", "viewdns", "hackertarget",
+            "sectigo", "digicert", "letsencrypt", "comodo"
         )
         
         val lowerDomain = domain.lowercase()
