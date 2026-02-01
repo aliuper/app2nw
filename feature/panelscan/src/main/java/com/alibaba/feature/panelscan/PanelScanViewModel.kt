@@ -16,12 +16,16 @@ import javax.inject.Inject
 
 data class PanelScanState(
     val comboText: String = "",
+    val customPanelUrl: String = "",  // Elle girilen panel URL
     val selectedPanels: List<PanelInfo> = emptyList(),
-    val useEmbeddedPanels: Boolean = true,
+    val useEmbeddedPanels: Boolean = false,  // Varsayılan kapalı - kullanıcı kendi panelini girecek
     val scanning: Boolean = false,
     val progress: ScanProgress? = null,
     val results: List<PanelScanResult> = emptyList(),
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val comboLineCount: Int = 0,  // Yüklenen satır sayısı
+    val showSaveDialog: Boolean = false,  // Kaydetme dialogu
+    val savedFilePath: String? = null  // Kaydedilen dosya yolu
 )
 
 data class ScanProgress(
@@ -40,9 +44,45 @@ class PanelScanViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(PanelScanState())
     val state: StateFlow<PanelScanState> = _state.asStateFlow()
+    
+    private var scanJob: kotlinx.coroutines.Job? = null
 
     fun setComboText(text: String) {
-        _state.update { it.copy(comboText = text) }
+        val lineCount = text.lines().count { it.contains(":") }
+        _state.update { it.copy(comboText = text, comboLineCount = lineCount) }
+    }
+    
+    fun setCustomPanelUrl(url: String) {
+        _state.update { it.copy(customPanelUrl = url) }
+    }
+    
+    fun parseAndAddCustomPanel() {
+        val url = _state.value.customPanelUrl.trim()
+        if (url.isBlank()) return
+        
+        try {
+            // URL'den host ve port çıkar
+            val cleanUrl = url.removePrefix("http://").removePrefix("https://")
+            val parts = cleanUrl.split(":")
+            val host = parts[0].split("/")[0]
+            val port = if (parts.size > 1) {
+                parts[1].split("/")[0].toIntOrNull() ?: 80
+            } else 80
+            
+            val panel = PanelInfo(host, port, isEmbedded = false)
+            _state.update { 
+                it.copy(
+                    selectedPanels = it.selectedPanels + panel,
+                    customPanelUrl = ""  // Temizle
+                ) 
+            }
+        } catch (e: Exception) {
+            _state.update { it.copy(errorMessage = "Geçersiz panel URL: $url") }
+        }
+    }
+    
+    fun clearCustomPanels() {
+        _state.update { it.copy(selectedPanels = emptyList()) }
     }
 
     fun toggleEmbeddedPanels() {
@@ -61,6 +101,45 @@ class PanelScanViewModel @Inject constructor(
             it.copy(selectedPanels = it.selectedPanels.filter { p -> p != panel }) 
         }
     }
+    
+    fun stopScan() {
+        scanJob?.cancel()
+        _state.update { 
+            it.copy(
+                scanning = false,
+                showSaveDialog = it.results.isNotEmpty()  // Sonuç varsa kaydetme dialogu göster
+            ) 
+        }
+    }
+    
+    fun dismissSaveDialog() {
+        _state.update { it.copy(showSaveDialog = false) }
+    }
+    
+    fun getResultsAsText(): String {
+        val results = _state.value.results
+        val sb = StringBuilder()
+        sb.appendLine("=== IPTV Panel Tarama Sonuçları ===")
+        sb.appendLine("Tarih: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}")
+        sb.appendLine("Bulunan Hesap Sayısı: ${results.size}")
+        sb.appendLine()
+        
+        results.forEach { result ->
+            sb.appendLine("─".repeat(50))
+            sb.appendLine("Kullanıcı: ${result.account.username}")
+            sb.appendLine("Şifre: ${result.account.password}")
+            sb.appendLine("Panel: ${result.panel.fullAddress}")
+            result.userInfo?.let { info ->
+                sb.appendLine("Bitiş: ${info.expDate ?: "Sınırsız"}")
+                sb.appendLine("Bağlantı: ${info.activeCons}/${info.maxConnections}")
+                sb.appendLine("Durum: ${info.status}")
+            }
+            sb.appendLine("M3U: http://${result.panel.fullAddress}/get.php?username=${result.account.username}&password=${result.account.password}&type=m3u_plus")
+            sb.appendLine()
+        }
+        
+        return sb.toString()
+    }
 
     fun startScan() {
         val currentState = _state.value
@@ -69,8 +148,17 @@ class PanelScanViewModel @Inject constructor(
             _state.update { it.copy(errorMessage = "Lütfen combo listesi girin") }
             return
         }
+        
+        // Custom panel veya embedded panel kontrolü
+        val hasCustomPanels = currentState.selectedPanels.isNotEmpty()
+        val useEmbedded = currentState.useEmbeddedPanels
+        
+        if (!hasCustomPanels && !useEmbedded) {
+            _state.update { it.copy(errorMessage = "Lütfen panel URL'si girin veya gömülü panelleri aktif edin") }
+            return
+        }
 
-        viewModelScope.launch {
+        scanJob = viewModelScope.launch {
             _state.update { 
                 it.copy(
                     scanning = true, 

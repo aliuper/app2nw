@@ -19,8 +19,8 @@ data class AutoUiState(
     val step: Int = 0,
     val inputText: String = "",
     val extractedUrls: List<UrlItem> = emptyList(),
-    val enableCountryFiltering: Boolean = true,
-    val selectedCountries: Set<String> = setOf("TR"),
+    val enableCountryFiltering: Boolean = false, // Varsayılan kapalı
+    val selectedCountries: Set<String> = emptySet(),
     val mergeIntoSingle: Boolean = true,
     val autoDetectFormat: Boolean = true,
     val outputFormat: OutputFormat = OutputFormat.M3U8,

@@ -22,10 +22,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.alibaba.domain.model.PlaylistQuality
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.concurrent.TimeUnit
 
 @Composable
 fun CompareRoute(
@@ -222,7 +218,13 @@ fun CompareScreen(
                 )
 
                 state.results.forEach { result ->
-                    PlaylistQualityCard(result)
+                    PlaylistQualityCard(
+                        quality = result,
+                        onCopyLink = { url ->
+                            clipboard.setText(AnnotatedString(url))
+                            Toast.makeText(context, "Link kopyalandı", Toast.LENGTH_SHORT).show()
+                        }
+                    )
                 }
             }
         }
@@ -230,7 +232,7 @@ fun CompareScreen(
 }
 
 @Composable
-fun PlaylistQualityCard(quality: PlaylistQuality) {
+fun PlaylistQualityCard(quality: PlaylistQuality, onCopyLink: (String) -> Unit = {}) {
     val rankColor = when (quality.rank) {
         1 -> MaterialTheme.colorScheme.primary
         2 -> MaterialTheme.colorScheme.secondary
@@ -281,17 +283,34 @@ fun PlaylistQualityCard(quality: PlaylistQuality) {
                     )
                 }
                 
-                Text(
-                    text = "%.1f/10".format(quality.qualityScore),
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = when {
-                        quality.qualityScore >= 8.0f -> MaterialTheme.colorScheme.primary
-                        quality.qualityScore >= 6.0f -> MaterialTheme.colorScheme.secondary
-                        quality.qualityScore >= 4.0f -> MaterialTheme.colorScheme.tertiary
-                        else -> MaterialTheme.colorScheme.error
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "%.1f/10".format(quality.qualityScore),
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = when {
+                            quality.qualityScore >= 8.0f -> MaterialTheme.colorScheme.primary
+                            quality.qualityScore >= 6.0f -> MaterialTheme.colorScheme.secondary
+                            quality.qualityScore >= 4.0f -> MaterialTheme.colorScheme.tertiary
+                            else -> MaterialTheme.colorScheme.error
+                        }
+                    )
+                    
+                    // Kopyala butonu
+                    IconButton(
+                        onClick = { onCopyLink(quality.url) },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.ContentCopy,
+                            contentDescription = "Linki Kopyala",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
                     }
-                )
+                }
             }
 
             HorizontalDivider()
@@ -313,26 +332,6 @@ fun PlaylistQualityCard(quality: PlaylistQuality) {
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Bold
                     )
-                    // Kalan gün hesaplama
-                    quality.endDate?.let { endDateStr ->
-                        val daysRemaining = calculateDaysRemaining(endDateStr)
-                        if (daysRemaining != null) {
-                            val (text, color) = when {
-                                daysRemaining < 0 -> "⛔ Süresi dolmuş" to MaterialTheme.colorScheme.error
-                                daysRemaining == 0L -> "⚠️ Bugün bitiyor!" to MaterialTheme.colorScheme.error
-                                daysRemaining <= 7 -> "⚠️ $daysRemaining gün kaldı" to MaterialTheme.colorScheme.error
-                                daysRemaining <= 30 -> "📅 $daysRemaining gün kaldı" to MaterialTheme.colorScheme.tertiary
-                                daysRemaining <= 90 -> "📅 $daysRemaining gün kaldı" to MaterialTheme.colorScheme.secondary
-                                else -> "✅ $daysRemaining gün kaldı" to MaterialTheme.colorScheme.primary
-                            }
-                            Text(
-                                text = text,
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Bold,
-                                color = color
-                            )
-                        }
-                    }
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     Text(text = "Kanallar:", style = MaterialTheme.typography.labelSmall)
@@ -461,55 +460,3 @@ fun MetricRow(
     }
 }
 
-// Bitiş tarihinden kalan günü hesapla
-private fun calculateDaysRemaining(endDateStr: String): Long? {
-    return try {
-        val now = System.currentTimeMillis()
-        
-        // Farklı tarih formatlarını dene
-        val formats = listOf(
-            "yyyy-MM-dd HH:mm:ss",
-            "yyyy-MM-dd",
-            "dd-MM-yyyy HH:mm:ss",
-            "dd-MM-yyyy",
-            "dd/MM/yyyy HH:mm:ss",
-            "dd/MM/yyyy",
-            "MM/dd/yyyy",
-            "yyyy/MM/dd"
-        )
-        
-        var endDate: Date? = null
-        for (format in formats) {
-            try {
-                endDate = SimpleDateFormat(format, Locale.getDefault()).parse(endDateStr)
-                if (endDate != null) break
-            } catch (_: Exception) {
-                continue
-            }
-        }
-        
-        // Unix timestamp olabilir (saniye cinsinden)
-        if (endDate == null) {
-            try {
-                val timestamp = endDateStr.toLongOrNull()
-                if (timestamp != null) {
-                    // 10 haneli ise saniye, 13 haneli ise milisaniye
-                    endDate = if (timestamp > 1_000_000_000_000L) {
-                        Date(timestamp)
-                    } else {
-                        Date(timestamp * 1000)
-                    }
-                }
-            } catch (_: Exception) {
-                // Ignore
-            }
-        }
-        
-        if (endDate == null) return null
-        
-        val diffMs = endDate.time - now
-        TimeUnit.MILLISECONDS.toDays(diffMs)
-    } catch (_: Exception) {
-        null
-    }
-}

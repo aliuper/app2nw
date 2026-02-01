@@ -1,6 +1,7 @@
 package com.alibaba.feature.panelscan
 
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -13,11 +14,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.alibaba.domain.model.ScanStatus
+import java.io.BufferedReader
+import java.io.InputStreamReader
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -29,22 +34,80 @@ fun PanelScanRoute(
 ) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
 
-    // File picker for combo files
+    // File picker for combo files - Büyük dosya desteği (streaming ile oku)
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let {
             try {
                 val inputStream = context.contentResolver.openInputStream(it)
-                val content = inputStream?.bufferedReader()?.use { reader -> reader.readText() }
-                content?.let { text ->
-                    viewModel.setComboText(text)
+                inputStream?.let { stream ->
+                    // Büyük dosyalar için satır satır oku (500MB'a kadar)
+                    val reader = BufferedReader(InputStreamReader(stream))
+                    val lines = StringBuilder()
+                    var lineCount = 0
+                    val maxLines = 5_000_000 // Maksimum 5 milyon satır
+                    
+                    reader.useLines { sequence ->
+                        sequence.take(maxLines).forEach { line ->
+                            if (line.contains(":")) {
+                                lines.appendLine(line)
+                                lineCount++
+                            }
+                        }
+                    }
+                    
+                    if (lineCount > 0) {
+                        viewModel.setComboText(lines.toString())
+                        Toast.makeText(context, "$lineCount hesap yüklendi", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "Geçerli hesap bulunamadı (format: user:pass)", Toast.LENGTH_LONG).show()
+                    }
                 }
             } catch (e: Exception) {
-                // Handle error
+                Toast.makeText(context, "Dosya okuma hatası: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
+    }
+    
+    // Hit kaydetme için file saver
+    val saveFileLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri: Uri? ->
+        uri?.let {
+            try {
+                context.contentResolver.openOutputStream(it)?.use { outputStream ->
+                    outputStream.write(viewModel.getResultsAsText().toByteArray())
+                }
+                Toast.makeText(context, "Sonuçlar kaydedildi!", Toast.LENGTH_SHORT).show()
+                viewModel.dismissSaveDialog()
+            } catch (e: Exception) {
+                Toast.makeText(context, "Kaydetme hatası: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+    
+    // Kaydetme dialogu
+    if (state.showSaveDialog && state.results.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissSaveDialog() },
+            title = { Text("Sonuçları Kaydet") },
+            text = { Text("${state.results.size} geçerli hesap bulundu. Kaydetmek ister misiniz?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    saveFileLauncher.launch("iptv_hits_${System.currentTimeMillis()}.txt")
+                }) {
+                    Text("Kaydet")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissSaveDialog() }) {
+                    Text("Vazgeç")
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -141,18 +204,80 @@ fun PanelScanRoute(
                 }
             )
 
-            // Panel Selection
+            // Panel Girişi - Elle panel URL yazma
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "Panel Seçimi",
+                        text = "🌐 Panel URL'si Girin",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )
-
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = state.customPanelUrl,
+                            onValueChange = { viewModel.setCustomPanelUrl(it) },
+                            modifier = Modifier.weight(1f),
+                            label = { Text("Panel URL") },
+                            placeholder = { Text("örn: panel.example.com:8080") },
+                            singleLine = true,
+                            enabled = !state.scanning
+                        )
+                        
+                        IconButton(
+                            onClick = { viewModel.parseAndAddCustomPanel() },
+                            enabled = !state.scanning && state.customPanelUrl.isNotBlank()
+                        ) {
+                            Icon(Icons.Default.Add, "Panel Ekle")
+                        }
+                    }
+                    
+                    // Eklenen paneller
+                    if (state.selectedPanels.isNotEmpty()) {
+                        Text(
+                            text = "Eklenen Paneller (${state.selectedPanels.size}):",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        
+                        state.selectedPanels.forEach { panel ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "• ${panel.fullAddress}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                IconButton(
+                                    onClick = { viewModel.removePanel(panel) },
+                                    enabled = !state.scanning
+                                ) {
+                                    Icon(Icons.Default.Close, "Kaldır", modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                        
+                        TextButton(
+                            onClick = { viewModel.clearCustomPanels() },
+                            enabled = !state.scanning
+                        ) {
+                            Text("Tümünü Temizle")
+                        }
+                    }
+                    
+                    HorizontalDivider()
+                    
+                    // Gömülü paneller seçeneği
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
@@ -163,30 +288,53 @@ fun PanelScanRoute(
                             enabled = !state.scanning
                         )
                         Text(
-                            text = "Gömülü panelleri kullan (${com.alibaba.domain.model.EmbeddedPanels.panels.size} panel)",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-
-                    if (state.selectedPanels.isNotEmpty()) {
-                        Text(
-                            text = "Özel Paneller: ${state.selectedPanels.size}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.secondary
+                            text = "Gömülü panelleri de kullan (${com.alibaba.domain.model.EmbeddedPanels.panels.size} panel)",
+                            style = MaterialTheme.typography.bodySmall
                         )
                     }
                 }
             }
 
-            // Start Button
-            Button(
-                onClick = { viewModel.startScan() },
+            // Start/Stop Buttons
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !state.scanning && state.comboText.isNotBlank()
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(Icons.Default.Search, null)
-                Spacer(Modifier.width(8.dp))
-                Text(if (state.scanning) "Taranıyor..." else "Taramayı Başlat")
+                if (state.scanning) {
+                    Button(
+                        onClick = { viewModel.stopScan() },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Icon(Icons.Default.Stop, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Durdur")
+                    }
+                } else {
+                    Button(
+                        onClick = { viewModel.startScan() },
+                        modifier = Modifier.weight(1f),
+                        enabled = state.comboText.isNotBlank() && 
+                                 (state.selectedPanels.isNotEmpty() || state.useEmbeddedPanels)
+                    ) {
+                        Icon(Icons.Default.Search, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Taramayı Başlat")
+                    }
+                }
+                
+                // Kaydet butonu
+                if (state.results.isNotEmpty() && !state.scanning) {
+                    OutlinedButton(
+                        onClick = { 
+                            saveFileLauncher.launch("iptv_hits_${System.currentTimeMillis()}.txt")
+                        }
+                    ) {
+                        Icon(Icons.Default.Save, null)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Kaydet")
+                    }
+                }
             }
 
             // Progress
@@ -287,7 +435,17 @@ fun PanelScanRoute(
                 }
 
                 state.results.forEach { result ->
-                    ResultCard(result)
+                    ResultCard(
+                        result = result,
+                        onCopyM3u = { url ->
+                            clipboardManager.setText(AnnotatedString(url))
+                            Toast.makeText(context, "M3U linki kopyalandı", Toast.LENGTH_SHORT).show()
+                        },
+                        onCopyXtream = { info ->
+                            clipboardManager.setText(AnnotatedString(info))
+                            Toast.makeText(context, "Xtream bilgileri kopyalandı", Toast.LENGTH_SHORT).show()
+                        }
+                    )
                 }
             }
         }
@@ -295,7 +453,14 @@ fun PanelScanRoute(
 }
 
 @Composable
-private fun ResultCard(result: com.alibaba.domain.model.PanelScanResult) {
+private fun ResultCard(
+    result: com.alibaba.domain.model.PanelScanResult,
+    onCopyM3u: (String) -> Unit = {},
+    onCopyXtream: (String) -> Unit = {}
+) {
+    val m3uUrl = "http://${result.panel.fullAddress}/get.php?username=${result.account.username}&password=${result.account.password}&type=m3u_plus"
+    val xstreamUrl = "http://${result.panel.fullAddress}"
+    
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -343,32 +508,53 @@ private fun ResultCard(result: com.alibaba.domain.model.PanelScanResult) {
                 }
             }
 
-            // URLs
+            // URLs with Copy Buttons
             HorizontalDivider()
-            val m3uUrl = "http://${result.panel.fullAddress}/get.php?username=${result.account.username}&password=${result.account.password}&type=m3u_plus"
-            val xstreamUrl = "http://${result.panel.fullAddress}"
             
-            Text(
-                text = "🔗 M3U URL:",
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = m3uUrl,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.secondary
-            )
-
-            Text(
-                text = "📡 Xtream URL:",
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = xstreamUrl,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.secondary
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "🔗 M3U URL:",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = m3uUrl,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary,
+                        maxLines = 2
+                    )
+                }
+                IconButton(onClick = { onCopyM3u(m3uUrl) }) {
+                    Icon(Icons.Default.ContentCopy, "M3U Kopyala", tint = MaterialTheme.colorScheme.primary)
+                }
+            }
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "📡 Xtream URL:",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "$xstreamUrl | ${result.account.username} | ${result.account.password}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
+                IconButton(onClick = { onCopyXtream("$xstreamUrl\n${result.account.username}\n${result.account.password}") }) {
+                    Icon(Icons.Default.ContentCopy, "Xtream Kopyala", tint = MaterialTheme.colorScheme.primary)
+                }
+            }
         }
     }
 }
