@@ -8,5 +8,5 @@ data class AppSettings(
     val skipAdultGroups: Boolean = true,
     val shuffleCandidates: Boolean = true,
     val enableCountryFiltering: Boolean = false, // Ülke filtreleme varsayılan kapalı
-    val outputDelivery: OutputDelivery = OutputDelivery.LINK // Çıktı türü: Link
+    val outputDelivery: OutputDelivery = OutputDelivery.LINKS // Çıktı türü: Link
 )
