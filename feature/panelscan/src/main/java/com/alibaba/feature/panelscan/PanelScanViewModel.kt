@@ -218,6 +218,19 @@ class PanelScanViewModel @Inject constructor(
     }
     
     /**
+     * Combo temizle
+     */
+    fun clearCombo() {
+        loadedAccounts.clear()
+        _state.update { 
+            it.copy(
+                comboText = "",
+                comboLineCount = 0
+            ) 
+        }
+    }
+    
+    /**
      * Attack modu değiştir
      * Seçilen mod tarama sırasında HTTP headers'a yansır
      */
@@ -328,8 +341,9 @@ class PanelScanViewModel @Inject constructor(
     fun startScan() {
         val currentState = _state.value
         
-        if (currentState.comboText.isBlank()) {
-            _state.update { it.copy(errorMessage = "Lütfen combo listesi girin") }
+        // Combo kontrolü - artık comboLineCount kullanıyoruz
+        if (currentState.comboLineCount == 0 && loadedAccounts.isEmpty()) {
+            _state.update { it.copy(errorMessage = "Lütfen combo dosyası seçin") }
             return
         }
         
@@ -355,8 +369,15 @@ class PanelScanViewModel @Inject constructor(
             }
 
             try {
-                // Parse combo file
-                val accounts = panelScanner.parseComboFile(currentState.comboText)
+                // Hesapları al - önce loadedAccounts, yoksa comboText'ten parse et
+                val accounts = if (loadedAccounts.isNotEmpty()) {
+                    loadedAccounts.map { line ->
+                        val parts = line.split(":")
+                        ComboAccount(parts[0], parts.getOrElse(1) { "" })
+                    }
+                } else {
+                    panelScanner.parseComboFile(currentState.comboText)
+                }
                 
                 if (accounts.isEmpty()) {
                     _state.update { 

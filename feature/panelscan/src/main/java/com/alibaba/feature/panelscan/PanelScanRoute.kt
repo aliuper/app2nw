@@ -275,51 +275,85 @@ fun PanelScanRoute(
                 }
             }
 
-            // File Picker Button
-            Row(
+            // 📂 Combo Dosyası Seçimi - Sadece dosya seç, içeriği gösterme!
+            Card(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                colors = CardDefaults.cardColors(
+                    containerColor = if (state.comboLineCount > 0) 
+                        MaterialTheme.colorScheme.primaryContainer 
+                    else 
+                        MaterialTheme.colorScheme.surfaceVariant
+                )
             ) {
-                OutlinedButton(
-                    onClick = { filePickerLauncher.launch("text/*") },
-                    modifier = Modifier.weight(1f),
-                    enabled = !state.scanning
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Icon(Icons.Default.FolderOpen, null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Combo Dosyası Seç")
-                }
-                
-                if (state.comboText.isNotEmpty()) {
-                    OutlinedButton(
-                        onClick = { viewModel.setComboText("") },
-                        enabled = !state.scanning
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.Clear, null)
+                        Column {
+                            Text(
+                                text = "📂 Combo Dosyası",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (state.comboLineCount > 0) {
+                                Text(
+                                    text = "✅ ${state.comboLineCount} hesap yüklendi",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            } else {
+                                Text(
+                                    text = "Henüz dosya seçilmedi",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // Dosya seç butonu
+                            Button(
+                                onClick = { filePickerLauncher.launch("text/*") },
+                                enabled = !state.scanning && !state.isLoadingFile
+                            ) {
+                                Icon(Icons.Default.FolderOpen, null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(if (state.comboLineCount > 0) "Değiştir" else "Dosya Seç")
+                            }
+                            
+                            // Temizle butonu
+                            if (state.comboLineCount > 0) {
+                                IconButton(
+                                    onClick = { viewModel.clearCombo() },
+                                    enabled = !state.scanning
+                                ) {
+                                    Icon(
+                                        Icons.Default.Clear, 
+                                        "Temizle",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Dosya bilgisi
+                    if (state.comboLineCount > 0) {
+                        HorizontalDivider()
+                        Text(
+                            text = "💡 Dosya içeriği bellek tasarrufu için gösterilmiyor",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
-
-            // Combo Input
-            OutlinedTextField(
-                value = state.comboText,
-                onValueChange = { viewModel.setComboText(it) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp),
-                label = { Text("Combo Listesi (veya yukarıdan dosya seçin)") },
-                placeholder = { 
-                    Text("kullanici1:sifre1\nkullanici2:sifre2\n...\n\nveya 'Combo Dosyası Seç' butonuna tıklayın") 
-                },
-                enabled = !state.scanning,
-                maxLines = 10,
-                supportingText = {
-                    if (state.comboText.isNotEmpty()) {
-                        val lineCount = state.comboText.lines().count { it.isNotBlank() }
-                        Text("$lineCount satır yüklendi")
-                    }
-                }
-            )
 
             // ⚙️ Tarama Ayarları - Hız ve Attack Modu
             Card(modifier = Modifier.fillMaxWidth()) {
@@ -528,7 +562,7 @@ fun PanelScanRoute(
                     Button(
                         onClick = { viewModel.startScan() },
                         modifier = Modifier.weight(1f),
-                        enabled = state.comboText.isNotBlank() && 
+                        enabled = state.comboLineCount > 0 && 
                                  (state.selectedPanels.isNotEmpty() || state.useEmbeddedPanels)
                     ) {
                         Icon(Icons.Default.Search, null)
