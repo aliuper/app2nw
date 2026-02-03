@@ -130,31 +130,64 @@ fun PanelScanRoute(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Info Card
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                )
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+            // 📚 Bilgilendirme Kartı - Kullanım Kılavuzu
+            var showGuide by remember { mutableStateOf(true) }
+            
+            if (showGuide) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    )
                 ) {
-                    Text(
-                        text = "🎯 IPTV Panel Tarayıcı",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "Combo dosyanızı yapıştırın ve panelleri tarayın. Format: kullanici:sifre",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Text(
-                        text = "• ${com.alibaba.domain.model.EmbeddedPanels.panels.size} gömülü panel hazır",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "📖 Nasıl Kullanılır?",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            IconButton(onClick = { showGuide = false }) {
+                                Icon(Icons.Default.Close, "Kapat", modifier = Modifier.size(18.dp))
+                            }
+                        }
+                        
+                        Text(
+                            text = "📁 Combo Dosyası: kullanici:sifre formatında hesap listesi yükleyin (1GB'a kadar desteklenir)",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Text(
+                            text = "🌐 Panel URL: Taramak istediğiniz IPTV panel adresini girin (örn: panel.site.com:8080)",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Text(
+                            text = "⚙️ Tarama Hızı: Yavaş=güvenli, Hızlı=normal, Saldırgan=maksimum hız (ban riski)",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Text(
+                            text = "🎭 Attack Modu: Farklı IPTV uygulamaları gibi davranarak tespit edilmeyi önler",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Text(
+                            text = "💾 Kaydet: Bulunan geçerli hesapları dosyaya kaydedin",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                        
+                        Text(
+                            text = "• ${com.alibaba.domain.model.EmbeddedPanels.panels.size} gömülü panel hazır",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
 
@@ -203,6 +236,103 @@ fun PanelScanRoute(
                     }
                 }
             )
+
+            // ⚙️ Tarama Ayarları - Hız ve Attack Modu
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "⚙️ Tarama Ayarları",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    
+                    // Tarama Hızı
+                    Text(
+                        text = "⚡ Tarama Hızı: ${state.scanSpeed.displayName}",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        ScanSpeed.entries.forEach { speed ->
+                            FilterChip(
+                                selected = state.scanSpeed == speed,
+                                onClick = { viewModel.setScanSpeed(speed) },
+                                label = { 
+                                    Text(
+                                        speed.displayName.take(2), 
+                                        style = MaterialTheme.typography.labelSmall
+                                    ) 
+                                },
+                                enabled = !state.scanning,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                    Text(
+                        text = "Eşzamanlı: ${state.scanSpeed.concurrency} | Gecikme: ${state.scanSpeed.delayMs}ms",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    
+                    HorizontalDivider()
+                    
+                    // Attack Modu
+                    Text(
+                        text = "🎭 Attack Modu: ${state.attackMode.displayName}",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium
+                    )
+                    
+                    var expandedAttackMode by remember { mutableStateOf(false) }
+                    
+                    ExposedDropdownMenuBox(
+                        expanded = expandedAttackMode,
+                        onExpandedChange = { if (!state.scanning) expandedAttackMode = it }
+                    ) {
+                        OutlinedTextField(
+                            value = state.attackMode.displayName,
+                            onValueChange = {},
+                            readOnly = true,
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedAttackMode) },
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth(),
+                            enabled = !state.scanning,
+                            textStyle = MaterialTheme.typography.bodySmall
+                        )
+                        
+                        ExposedDropdownMenu(
+                            expanded = expandedAttackMode,
+                            onDismissRequest = { expandedAttackMode = false }
+                        ) {
+                            AttackModeOption.entries.forEach { mode ->
+                                DropdownMenuItem(
+                                    text = { 
+                                        Column {
+                                            Text(mode.displayName, style = MaterialTheme.typography.bodyMedium)
+                                            Text(
+                                                mode.description, 
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        viewModel.setAttackMode(mode)
+                                        expandedAttackMode = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
 
             // Panel Girişi - Elle panel URL yazma
             Card(modifier = Modifier.fillMaxWidth()) {
