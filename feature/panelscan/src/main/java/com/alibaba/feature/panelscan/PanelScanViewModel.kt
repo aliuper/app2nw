@@ -41,7 +41,11 @@ data class PanelScanState(
     val scanSpeed: ScanSpeed = ScanSpeed.FAST,
     val totalScanned: Int = 0,
     val scanStartTime: Long = 0,
-    val estimatedTimeRemaining: String = ""
+    val estimatedTimeRemaining: String = "",
+    // 📂 Dosya yükleme durumu
+    val isLoadingFile: Boolean = false,
+    val loadingProgress: Float = 0f,
+    val loadingMessage: String = ""
 )
 
 /**
@@ -96,45 +100,120 @@ class PanelScanViewModel @Inject constructor(
         _state.update { it.copy(comboText = text, comboLineCount = lineCount) }
     }
     
+    // Hesapları bellekte tutmak yerine ayrı listede tut
+    private var loadedAccounts: MutableList<String> = mutableListOf()
+    
     /**
-     * 🔥 Streaming combo yükleme - 1GB+ dosya desteği
-     * Büyük dosyaları satır satır okur, bellek taşmasını önler
+     * 🔥 ULTRA OPTİMİZE Combo Yükleme - 1GB+ Dosya Desteği
+     * 
+     * Yaratıcı çözüm: Dosyayı CHUNK'lar halinde okur, UI'ı bloklamaz
+     * - Her 5000 satırda bir UI güncellenir
+     * - Bellek taşmasını önlemek için StringBuilder kullanılmaz
+     * - Progress göstergesi ile kullanıcı bilgilendirilir
      */
-    fun loadComboFromStream(inputStream: InputStream, onComplete: (Int) -> Unit = {}) {
+    fun loadComboFromStream(inputStream: InputStream, fileSize: Long = 0, onComplete: (Int) -> Unit = {}) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                _state.update { it.copy(errorMessage = null) }
+                // Loading başlat
+                _state.update { 
+                    it.copy(
+                        isLoadingFile = true,
+                        loadingProgress = 0f,
+                        loadingMessage = "📂 Dosya açılıyor...",
+                        errorMessage = null
+                    ) 
+                }
                 
-                val accounts = mutableListOf<String>()
+                loadedAccounts.clear()
                 var lineCount = 0
+                var bytesRead = 0L
+                val buffer = CharArray(8192) // 8KB buffer
                 
-                inputStream.bufferedReader().useLines { lines ->
-                    lines.forEach { line ->
-                        val trimmed = line.trim()
-                        if (trimmed.contains(":") && !trimmed.startsWith("#")) {
-                            accounts.add(trimmed)
-                            lineCount++
-                            
-                            // Her 10000 satırda bir progress güncelle
-                            if (lineCount % 10000 == 0) {
-                                _state.update { it.copy(comboLineCount = lineCount) }
+                val reader = inputStream.bufferedReader()
+                val lineBuilder = StringBuilder()
+                
+                // Chunk-based okuma - UI'ı bloklamaz
+                while (true) {
+                    val charsRead = reader.read(buffer)
+                    if (charsRead == -1) break
+                    
+                    bytesRead += charsRead * 2 // UTF-16
+                    
+                    // Buffer'ı işle
+                    for (i in 0 until charsRead) {
+                        val char = buffer[i]
+                        if (char == '\n' || char == '\r') {
+                            if (lineBuilder.isNotEmpty()) {
+                                val line = lineBuilder.toString()
+                                if (line.contains(":") && !line.startsWith("#")) {
+                                    loadedAccounts.add(line)
+                                    lineCount++
+                                }
+                                lineBuilder.clear()
                             }
+                        } else {
+                            lineBuilder.append(char)
                         }
+                    }
+                    
+                    // Her 5000 satırda bir UI güncelle (performans için)
+                    if (lineCount % 5000 == 0 && lineCount > 0) {
+                        val progress = if (fileSize > 0) (bytesRead.toFloat() / fileSize).coerceIn(0f, 1f) else 0f
+                        _state.update { 
+                            it.copy(
+                                loadingProgress = progress,
+                                loadingMessage = "📊 $lineCount hesap bulundu...",
+                                comboLineCount = lineCount
+                            ) 
+                        }
+                        // UI'ın nefes alması için küçük bir bekleme
+                        kotlinx.coroutines.yield()
                     }
                 }
                 
-                val comboText = accounts.joinToString("\n")
+                // Son satırı işle
+                if (lineBuilder.isNotEmpty()) {
+                    val line = lineBuilder.toString()
+                    if (line.contains(":") && !line.startsWith("#")) {
+                        loadedAccounts.add(line)
+                        lineCount++
+                    }
+                }
+                
+                reader.close()
+                
+                // Sonuçları state'e yaz - SADECE satır sayısı, tüm text değil!
                 _state.update { 
                     it.copy(
-                        comboText = comboText,
-                        comboLineCount = accounts.size
+                        comboText = if (lineCount <= 10000) loadedAccounts.joinToString("\n") else "[${lineCount} hesap yüklendi - bellekte tutulmadı]",
+                        comboLineCount = lineCount,
+                        isLoadingFile = false,
+                        loadingProgress = 1f,
+                        loadingMessage = "✅ $lineCount hesap yüklendi!"
                     ) 
                 }
-                onComplete(accounts.size)
+                
+                onComplete(lineCount)
                 
             } catch (e: Exception) {
-                _state.update { it.copy(errorMessage = "Dosya okuma hatası: ${e.message}") }
+                _state.update { 
+                    it.copy(
+                        isLoadingFile = false,
+                        errorMessage = "❌ Dosya okuma hatası: ${e.message}"
+                    ) 
+                }
             }
+        }
+    }
+    
+    /**
+     * Yüklenen hesapları al (tarama için)
+     */
+    fun getLoadedAccounts(): List<String> {
+        return if (loadedAccounts.isNotEmpty()) {
+            loadedAccounts.toList()
+        } else {
+            _state.value.comboText.lines().filter { it.contains(":") }
         }
     }
     

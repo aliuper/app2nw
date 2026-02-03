@@ -4,6 +4,7 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -36,38 +37,37 @@ fun PanelScanRoute(
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
 
-    // File picker for combo files - Büyük dosya desteği (streaming ile oku)
+    // 🔥 ULTRA OPTİMİZE File Picker - 1GB+ Dosya Desteği
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let {
             try {
+                // Dosya boyutunu al
+                val fileSize = context.contentResolver.openFileDescriptor(it, "r")?.use { fd ->
+                    fd.statSize
+                } ?: 0L
+                
                 val inputStream = context.contentResolver.openInputStream(it)
                 inputStream?.let { stream ->
-                    // Büyük dosyalar için satır satır oku (500MB'a kadar)
-                    val reader = BufferedReader(InputStreamReader(stream))
-                    val lines = StringBuilder()
-                    var lineCount = 0
-                    val maxLines = 5_000_000 // Maksimum 5 milyon satır
-                    
-                    reader.useLines { sequence ->
-                        sequence.take(maxLines).forEach { line ->
-                            if (line.contains(":")) {
-                                lines.appendLine(line)
-                                lineCount++
+                    // Async olarak ViewModel'de oku - UI bloklanmaz!
+                    viewModel.loadComboFromStream(
+                        inputStream = stream,
+                        fileSize = fileSize,
+                        onComplete = { count ->
+                            // Main thread'de toast göster
+                            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                                if (count > 0) {
+                                    Toast.makeText(context, "✅ $count hesap yüklendi!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "❌ Geçerli hesap bulunamadı (format: user:pass)", Toast.LENGTH_LONG).show()
+                                }
                             }
                         }
-                    }
-                    
-                    if (lineCount > 0) {
-                        viewModel.setComboText(lines.toString())
-                        Toast.makeText(context, "$lineCount hesap yüklendi", Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(context, "Geçerli hesap bulunamadı (format: user:pass)", Toast.LENGTH_LONG).show()
-                    }
+                    )
                 }
             } catch (e: Exception) {
-                Toast.makeText(context, "Dosya okuma hatası: ${e.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, "❌ Dosya okuma hatası: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -122,6 +122,90 @@ fun PanelScanRoute(
             )
         }
     ) { padding ->
+        // 📂 DOSYA YÜKLEME OVERLAY - Büyük dosya yüklenirken göster
+        if (state.isLoadingFile) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth(0.85f)
+                        .padding(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        // Animasyonlu yükleme ikonu
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(64.dp),
+                            strokeWidth = 6.dp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        
+                        Text(
+                            text = "🔥 Combo Dosyası Yükleniyor",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        
+                        Text(
+                            text = state.loadingMessage,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        
+                        // Progress bar
+                        if (state.loadingProgress > 0f) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                LinearProgressIndicator(
+                                    progress = { state.loadingProgress },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(8.dp),
+                                )
+                                Text(
+                                    text = "${(state.loadingProgress * 100).toInt()}%",
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                            }
+                        } else {
+                            LinearProgressIndicator(
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        
+                        // Yüklenen hesap sayısı
+                        if (state.comboLineCount > 0) {
+                            Text(
+                                text = "📊 ${state.comboLineCount} hesap bulundu",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        
+                        Text(
+                            text = "💡 Büyük dosyalar için bu işlem biraz zaman alabilir",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+        
         Column(
             modifier = Modifier
                 .fillMaxSize()

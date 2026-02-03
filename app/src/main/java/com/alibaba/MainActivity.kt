@@ -12,11 +12,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.content.ContextCompat
+import com.alibaba.ui.SplashScreen
 import com.alibaba.ui.theme.HackerColorScheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -94,9 +96,27 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun AlibabaAppRoot() {
+    var showSplash by remember { mutableStateOf(true) }
+    
     MaterialTheme(colorScheme = HackerColorScheme) {
         Surface {
-            AlibabaNavHost()
+            // 🔥 ALİ BABA YAZILIM - HAVALI AÇILIŞ ANİMASYONU
+            AnimatedContent(
+                targetState = showSplash,
+                transitionSpec = {
+                    fadeIn(animationSpec = tween(500)) togetherWith 
+                    fadeOut(animationSpec = tween(500))
+                },
+                label = "splash"
+            ) { isSplash ->
+                if (isSplash) {
+                    SplashScreen(
+                        onSplashComplete = { showSplash = false }
+                    )
+                } else {
+                    AlibabaNavHost()
+                }
+            }
         }
     }
 }
