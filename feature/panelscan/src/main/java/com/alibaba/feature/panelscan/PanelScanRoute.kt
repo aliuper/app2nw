@@ -37,7 +37,8 @@ fun PanelScanRoute(
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
 
-    // 🔥 ULTRA OPTİMİZE File Picker - 1GB+ Dosya Desteği
+    // 🔥 STREAMING File Picker - Sınırsız hesap desteği!
+    // Dosyayı belleğe YÜKLEMEZ, sadece satır sayısını sayar
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -48,24 +49,22 @@ fun PanelScanRoute(
                     fd.statSize
                 } ?: 0L
                 
-                val inputStream = context.contentResolver.openInputStream(it)
-                inputStream?.let { stream ->
-                    // Async olarak ViewModel'de oku - UI bloklanmaz!
-                    viewModel.loadComboFromStream(
-                        inputStream = stream,
-                        fileSize = fileSize,
-                        onComplete = { count ->
-                            // Main thread'de toast göster
-                            android.os.Handler(android.os.Looper.getMainLooper()).post {
-                                if (count > 0) {
-                                    Toast.makeText(context, "✅ $count hesap yüklendi!", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    Toast.makeText(context, "❌ Geçerli hesap bulunamadı (format: user:pass)", Toast.LENGTH_LONG).show()
-                                }
+                // 🔥 YENİ: Sadece satır sayısını say, belleğe yükleme!
+                viewModel.countLinesOnly(
+                    context = context,
+                    uri = it,
+                    fileSize = fileSize,
+                    onComplete = { count ->
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            if (count > 0) {
+                                val mode = if (count > 50000) "Streaming" else "Normal"
+                                Toast.makeText(context, "✅ $count hesap bulundu ($mode mod)", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "❌ Geçerli hesap bulunamadı (format: user:pass)", Toast.LENGTH_LONG).show()
                             }
                         }
-                    )
-                }
+                    }
+                )
             } catch (e: Exception) {
                 Toast.makeText(context, "❌ Dosya okuma hatası: ${e.message}", Toast.LENGTH_LONG).show()
             }

