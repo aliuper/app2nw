@@ -26,6 +26,16 @@ import javax.inject.Inject
  * 🔥 ULTRA PANEL SCANNER STATE
  * Attack modları ve gelişmiş tarama özellikleri
  */
+/**
+ * Panel durumu - online/offline kontrolü için
+ */
+data class PanelStatus(
+    val panel: PanelInfo,
+    val isOnline: Boolean,
+    val responseTimeMs: Long = 0,
+    val errorMessage: String? = null
+)
+
 data class PanelScanState(
     val comboText: String = "",
     val customPanelUrl: String = "",
@@ -47,7 +57,12 @@ data class PanelScanState(
     // 📂 Dosya yükleme durumu
     val isLoadingFile: Boolean = false,
     val loadingProgress: Float = 0f,
-    val loadingMessage: String = ""
+    val loadingMessage: String = "",
+    // 🚀 Panel ön-test durumu
+    val isTestingPanels: Boolean = false,
+    val panelStatuses: List<PanelStatus> = emptyList(),
+    val onlinePanelCount: Int = 0,
+    val offlinePanelCount: Int = 0
 )
 
 /**
@@ -357,13 +372,98 @@ class PanelScanViewModel @Inject constructor(
         _state.update { 
             it.copy(
                 scanning = false,
-                showSaveDialog = it.results.isNotEmpty()  // Sonuç varsa kaydetme dialogu göster
+                isTestingPanels = false,
+                showSaveDialog = it.results.isNotEmpty()
             ) 
         }
     }
     
     fun dismissSaveDialog() {
         _state.update { it.copy(showSaveDialog = false) }
+    }
+    
+    /**
+     * 🚀 PANEL ÖN-TEST - Taramadan önce panellerin online olup olmadığını kontrol et
+     * Sadece online panelleri taramaya sok - zaman ve kaynak tasarrufu!
+     */
+    private suspend fun testPanelsOnline(panels: List<PanelInfo>): List<PanelInfo> {
+        if (panels.isEmpty()) return emptyList()
+        
+        _state.update { 
+            it.copy(
+                isTestingPanels = true,
+                loadingMessage = "🔍 Paneller test ediliyor...",
+                panelStatuses = emptyList()
+            )
+        }
+        
+        val results = mutableListOf<PanelStatus>()
+        val onlinePanels = mutableListOf<PanelInfo>()
+        
+        withContext(Dispatchers.IO) {
+            val semaphore = Semaphore(20) // 20 paralel test
+            
+            val jobs = panels.map { panel ->
+                async {
+                    semaphore.withPermit {
+                        val startTime = System.currentTimeMillis()
+                        try {
+                            // Panel'e basit bir bağlantı testi yap
+                            val url = java.net.URL("http://${panel.fullAddress}/player_api.php")
+                            val connection = url.openConnection() as java.net.HttpURLConnection
+                            connection.connectTimeout = 5000
+                            connection.readTimeout = 5000
+                            connection.requestMethod = "HEAD"
+                            
+                            val responseCode = connection.responseCode
+                            val responseTime = System.currentTimeMillis() - startTime
+                            connection.disconnect()
+                            
+                            val isOnline = responseCode in 200..499 // 4xx de panel var demek
+                            
+                            PanelStatus(
+                                panel = panel,
+                                isOnline = isOnline,
+                                responseTimeMs = responseTime
+                            )
+                        } catch (e: Exception) {
+                            PanelStatus(
+                                panel = panel,
+                                isOnline = false,
+                                errorMessage = e.message?.take(50)
+                            )
+                        }
+                    }
+                }
+            }
+            
+            jobs.forEachIndexed { index, deferred ->
+                val status = deferred.await()
+                results.add(status)
+                if (status.isOnline) {
+                    onlinePanels.add(status.panel)
+                }
+                
+                // UI güncelle
+                _state.update {
+                    it.copy(
+                        loadingMessage = "🔍 Panel testi: ${index + 1}/${panels.size} (${onlinePanels.size} online)",
+                        panelStatuses = results.toList(),
+                        onlinePanelCount = onlinePanels.size,
+                        offlinePanelCount = results.size - onlinePanels.size
+                    )
+                }
+            }
+        }
+        
+        _state.update { 
+            it.copy(
+                isTestingPanels = false,
+                loadingMessage = "✅ ${onlinePanels.size}/${panels.size} panel online"
+            )
+        }
+        
+        return onlinePanels
     }
     
     fun getResultsAsText(): String {
@@ -423,19 +523,21 @@ class PanelScanViewModel @Inject constructor(
                     errorMessage = null,
                     results = emptyList(),
                     progress = null,
-                    scanStartTime = startTime
+                    scanStartTime = startTime,
+                    panelStatuses = emptyList()
                 ) 
             }
 
             try {
-                // Get panels to scan
-                val panelsToScan = currentState.selectedPanels.toMutableList()
-
-                if (panelsToScan.isEmpty()) {
+                // 🚀 PANEL ÖN-TEST - Sadece online panelleri tara!
+                val allPanels = currentState.selectedPanels.toList()
+                val onlinePanels = testPanelsOnline(allPanels)
+                
+                if (onlinePanels.isEmpty()) {
                     _state.update { 
                         it.copy(
                             scanning = false,
-                            errorMessage = "Lütfen en az bir panel seçin"
+                            errorMessage = "❌ Hiçbir panel online değil! (${allPanels.size} panel test edildi)"
                         ) 
                     }
                     return@launch
@@ -479,7 +581,7 @@ class PanelScanViewModel @Inject constructor(
                                 // Bu batch'i tara
                                 val batchResults = scanBatch(
                                     accounts = accountBatch.toList(),
-                                    panels = panelsToScan,
+                                    panels = onlinePanels,
                                     semaphore = semaphore,
                                     delayMs = delayMs,
                                     startTime = startTime,
@@ -508,7 +610,7 @@ class PanelScanViewModel @Inject constructor(
                         if (accountBatch.isNotEmpty()) {
                             scanBatch(
                                 accounts = accountBatch.toList(),
-                                panels = panelsToScan,
+                                panels = onlinePanels,
                                 semaphore = semaphore,
                                 delayMs = delayMs,
                                 startTime = startTime,
@@ -552,11 +654,11 @@ class PanelScanViewModel @Inject constructor(
                             return@withContext
                         }
                         
-                        val totalScans = accounts.size * panelsToScan.size
+                        val totalScans = accounts.size * onlinePanels.size
                         var currentScan = 0
                         
                         val jobs = accounts.flatMap { account ->
-                            panelsToScan.map { panel ->
+                            onlinePanels.map { panel ->
                                 async {
                                     semaphore.withPermit {
                                         try {
@@ -621,8 +723,8 @@ class PanelScanViewModel @Inject constructor(
                         scanning = false,
                         showSaveDialog = results.isNotEmpty(),
                         progress = ScanProgress(
-                            current = totalScanned * panelsToScan.size,
-                            total = totalAccounts * panelsToScan.size,
+                            current = totalScanned * onlinePanels.size,
+                            total = totalAccounts * onlinePanels.size,
                             validCount = validCount,
                             invalidCount = invalidCount,
                             errorCount = errorCount,

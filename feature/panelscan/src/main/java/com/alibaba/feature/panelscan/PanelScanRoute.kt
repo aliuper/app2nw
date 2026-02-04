@@ -20,6 +20,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.alibaba.domain.model.ScanStatus
 import java.io.BufferedReader
@@ -492,28 +493,74 @@ fun PanelScanRoute(
                         }
                     }
                     
-                    // Eklenen paneller
+                    // Eklenen paneller ve durumları
                     if (state.selectedPanels.isNotEmpty()) {
-                        Text(
-                            text = "Eklenen Paneller (${state.selectedPanels.size}):",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Paneller (${state.selectedPanels.size}):",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            
+                            // Online/Offline sayacı
+                            if (state.panelStatuses.isNotEmpty()) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(
+                                        text = "✅ ${state.onlinePanelCount}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        text = "❌ ${state.offlinePanelCount}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                        }
                         
                         state.selectedPanels.forEach { panel ->
+                            val status = state.panelStatuses.find { it.panel == panel }
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = "• ${panel.fullAddress}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    // Durum ikonu
+                                    when {
+                                        status == null -> Text("⏳", fontSize = 12.sp)
+                                        status.isOnline -> Text("✅", fontSize = 12.sp)
+                                        else -> Text("❌", fontSize = 12.sp)
+                                    }
+                                    Text(
+                                        text = panel.fullAddress,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = when {
+                                            status == null -> MaterialTheme.colorScheme.onSurface
+                                            status.isOnline -> MaterialTheme.colorScheme.primary
+                                            else -> MaterialTheme.colorScheme.error.copy(alpha = 0.6f)
+                                        }
+                                    )
+                                    // Response time
+                                    if (status?.isOnline == true && status.responseTimeMs > 0) {
+                                        Text(
+                                            text = "(${status.responseTimeMs}ms)",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
                                 IconButton(
                                     onClick = { viewModel.removePanel(panel) },
-                                    enabled = !state.scanning
+                                    enabled = !state.scanning && !state.isTestingPanels
                                 ) {
                                     Icon(Icons.Default.Close, "Kaldır", modifier = Modifier.size(16.dp))
                                 }
@@ -522,7 +569,7 @@ fun PanelScanRoute(
                         
                         TextButton(
                             onClick = { viewModel.clearCustomPanels() },
-                            enabled = !state.scanning
+                            enabled = !state.scanning && !state.isTestingPanels
                         ) {
                             Text("Tümünü Temizle")
                         }
