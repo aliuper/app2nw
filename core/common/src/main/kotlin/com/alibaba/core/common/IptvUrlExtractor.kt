@@ -3,6 +3,39 @@ package com.alibaba.core.common
 private val urlRegex = Regex("""https?://[^\s"']+""", RegexOption.IGNORE_CASE)
 private val schemeRegex = Regex("""https?://""", RegexOption.IGNORE_CASE)
 
+// Emoji ve özel karakterleri temizle
+private val emojiRegex = Regex("[\\p{So}\\p{Cn}\\uFE00-\\uFE0F\\u200D]")
+
+// IPTV URL olup olmadığını kontrol et
+fun isValidIptvUrl(url: String): Boolean {
+    val cleanUrl = url.lowercase()
+    // IPTV URL özellikleri:
+    // 1. m3u veya m3u8 içermeli
+    // 2. get.php, player_api.php, xmltv.php gibi Xtream API endpointleri
+    // 3. username ve password parametreleri
+    return when {
+        cleanUrl.contains("m3u") || cleanUrl.contains("m3u8") -> true
+        cleanUrl.contains("get.php") -> true
+        cleanUrl.contains("player_api.php") -> true
+        cleanUrl.contains("xmltv.php") -> true
+        cleanUrl.contains("panel.php") -> true
+        cleanUrl.contains("username=") && cleanUrl.contains("password=") -> true
+        cleanUrl.contains("/live/") && cleanUrl.contains(".ts") -> true
+        cleanUrl.contains("/movie/") -> true
+        cleanUrl.contains("/series/") -> true
+        else -> false
+    }
+}
+
+// URL'den emoji ve gereksiz karakterleri temizle
+private fun cleanUrl(url: String): String {
+    return url
+        .let { emojiRegex.replace(it, "") } // Emojileri sil
+        .trim()
+        .trimEnd(',', ';', '.', '!', '?', ')', ']', '}', '>', '"', '\'')
+        .trimStart('(', '[', '{', '<', '"', '\'')
+}
+
 // Xtream API URL'lerinden sunucu+kullanıcı+şifre çıkar
 private fun extractCredentials(url: String): Triple<String, String, String>? {
     return try {
@@ -30,8 +63,8 @@ private fun extractCredentials(url: String): Triple<String, String, String>? {
 fun extractIptvUrls(text: String): List<String> {
     val allUrls = urlRegex.findAll(text)
         .flatMap { m -> splitConcatenatedUrls(m.value).asSequence() }
-        .map { it.trim().trimEnd(',', ';') }
-        .filter { it.contains("m3u", ignoreCase = true) || it.contains("m3u8", ignoreCase = true) }
+        .map { cleanUrl(it) } // Emoji ve gereksiz karakterleri temizle
+        .filter { it.isNotBlank() && isValidIptvUrl(it) } // Sadece geçerli IPTV URL'leri
         .distinct()
         .toList()
     

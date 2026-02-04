@@ -132,26 +132,47 @@ fun SplashScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // Logo
+            // Logo - Modern IPTV ikonu
             if (showLogo) {
                 Box(
                     modifier = Modifier
                         .scale(logoScale)
-                        .padding(bottom = 16.dp)
+                        .padding(bottom = 16.dp),
+                    contentAlignment = Alignment.Center
                 ) {
-                    // Glow efekti
-                    Text(
-                        text = "🔮",
-                        fontSize = 80.sp,
+                    // Glow arka plan
+                    Canvas(
                         modifier = Modifier
-                            .blur(20.dp)
+                            .size(120.dp)
+                            .blur(25.dp)
                             .alpha(glowAlpha)
-                    )
-                    // Ana emoji
-                    Text(
-                        text = "🔮",
-                        fontSize = 80.sp
-                    )
+                    ) {
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    Color(0xFF00FF41),
+                                    Color(0xFF00FFFF),
+                                    Color.Transparent
+                                )
+                            ),
+                            radius = size.minDimension / 2
+                        )
+                    }
+                    
+                    // Ana logo - TV + Signal ikonu
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "📡",
+                            fontSize = 60.sp
+                        )
+                        Text(
+                            text = "�",
+                            fontSize = 50.sp,
+                            modifier = Modifier.offset(y = (-8).dp)
+                        )
+                    }
                 }
                 
                 Spacer(modifier = Modifier.height(24.dp))

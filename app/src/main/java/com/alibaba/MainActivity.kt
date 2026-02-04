@@ -17,6 +17,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.content.ContextCompat
 import com.alibaba.ui.SplashScreen
@@ -97,7 +98,8 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun AlibabaAppRoot() {
-    var showSplash by remember { mutableStateOf(true) }
+    // rememberSaveable: Ekran döndürmede splash tekrar gösterilmez
+    var showSplash by rememberSaveable { mutableStateOf(true) }
     
     MaterialTheme(colorScheme = HackerColorScheme) {
         Surface {

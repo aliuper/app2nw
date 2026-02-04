@@ -263,13 +263,6 @@ fun PanelScanRoute(
                             style = MaterialTheme.typography.bodySmall
                         )
                         
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                        
-                        Text(
-                            text = "• ${com.alibaba.domain.model.EmbeddedPanels.panels.size} gömülü panel hazır",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
                     }
                 }
             }
@@ -463,26 +456,39 @@ fun PanelScanRoute(
                         fontWeight = FontWeight.Bold
                     )
                     
+                    OutlinedTextField(
+                        value = state.customPanelUrl,
+                        onValueChange = { viewModel.setCustomPanelUrl(it) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Panel URL veya Metin") },
+                        placeholder = { Text("panel1.com:8080\npanel2.com:8080\nveya karışık metin...") },
+                        minLines = 2,
+                        maxLines = 5,
+                        enabled = !state.scanning
+                    )
+                    
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        OutlinedTextField(
-                            value = state.customPanelUrl,
-                            onValueChange = { viewModel.setCustomPanelUrl(it) },
-                            modifier = Modifier.weight(1f),
-                            label = { Text("Panel URL") },
-                            placeholder = { Text("örn: panel.example.com:8080") },
-                            singleLine = true,
-                            enabled = !state.scanning
-                        )
-                        
-                        IconButton(
+                        // Tek panel ekle
+                        Button(
                             onClick = { viewModel.parseAndAddCustomPanel() },
                             enabled = !state.scanning && state.customPanelUrl.isNotBlank()
                         ) {
-                            Icon(Icons.Default.Add, "Panel Ekle")
+                            Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Ekle")
+                        }
+                        
+                        // Panelleri Ayıkla butonu
+                        OutlinedButton(
+                            onClick = { viewModel.extractPanelsFromText(state.customPanelUrl) },
+                            enabled = !state.scanning && state.customPanelUrl.isNotBlank()
+                        ) {
+                            Icon(Icons.Default.Link, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Panelleri Ayıkla")
                         }
                     }
                     
@@ -522,23 +528,6 @@ fun PanelScanRoute(
                         }
                     }
                     
-                    HorizontalDivider()
-                    
-                    // Gömülü paneller seçeneği
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(
-                            checked = state.useEmbeddedPanels,
-                            onCheckedChange = { viewModel.toggleEmbeddedPanels() },
-                            enabled = !state.scanning
-                        )
-                        Text(
-                            text = "Gömülü panelleri de kullan (${com.alibaba.domain.model.EmbeddedPanels.panels.size} panel)",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
                 }
             }
 
@@ -561,8 +550,7 @@ fun PanelScanRoute(
                     Button(
                         onClick = { viewModel.startScan() },
                         modifier = Modifier.weight(1f),
-                        enabled = state.comboLineCount > 0 && 
-                                 (state.selectedPanels.isNotEmpty() || state.useEmbeddedPanels)
+                        enabled = state.comboLineCount > 0 && state.selectedPanels.isNotEmpty()
                     ) {
                         Icon(Icons.Default.Search, null)
                         Spacer(Modifier.width(8.dp))
@@ -570,8 +558,21 @@ fun PanelScanRoute(
                     }
                 }
                 
-                // Kaydet butonu
+                // Kaydet ve Kopyala butonları
                 if (state.results.isNotEmpty() && !state.scanning) {
+                    // Tüm M3U linklerini kopyala
+                    OutlinedButton(
+                        onClick = { 
+                            val links = viewModel.getM3ULinks()
+                            clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(links))
+                            Toast.makeText(context, "✅ ${state.results.size} M3U linki kopyalandı!", Toast.LENGTH_SHORT).show()
+                        }
+                    ) {
+                        Icon(Icons.Default.ContentCopy, null)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Kopyala")
+                    }
+                    
                     OutlinedButton(
                         onClick = { 
                             saveFileLauncher.launch("iptv_hits_${System.currentTimeMillis()}.txt")

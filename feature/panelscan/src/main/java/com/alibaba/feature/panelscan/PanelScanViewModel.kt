@@ -303,8 +303,40 @@ class PanelScanViewModel @Inject constructor(
         _state.update { it.copy(selectedPanels = emptyList()) }
     }
 
-    fun toggleEmbeddedPanels() {
-        _state.update { it.copy(useEmbeddedPanels = !it.useEmbeddedPanels) }
+    /**
+     * 🔥 Panel URL'lerini metinden ayıkla
+     * Otomatik taramadaki gibi metin ver, panelleri ayıkla
+     */
+    fun extractPanelsFromText(text: String) {
+        val panelRegex = Regex("""(?:https?://)?([a-zA-Z0-9.-]+):(\d+)""")
+        val newPanels = mutableListOf<PanelInfo>()
+        
+        panelRegex.findAll(text).forEach { match ->
+            val host = match.groupValues[1]
+            val port = match.groupValues[2].toIntOrNull() ?: 8080
+            val panel = PanelInfo(host, port, isEmbedded = false)
+            if (panel !in newPanels && panel !in _state.value.selectedPanels) {
+                newPanels.add(panel)
+            }
+        }
+        
+        if (newPanels.isNotEmpty()) {
+            _state.update { 
+                it.copy(
+                    selectedPanels = it.selectedPanels + newPanels,
+                    customPanelUrl = "" // Temizle
+                )
+            }
+        }
+    }
+    
+    /**
+     * Sonuçların M3U linklerini kopyalamak için al
+     */
+    fun getM3ULinks(): String {
+        return _state.value.results.joinToString("\n") { result ->
+            "http://${result.panel.fullAddress}/get.php?username=${result.account.username}&password=${result.account.password}&type=m3u_plus"
+        }
     }
 
     fun addCustomPanel(host: String, port: Int) {
@@ -374,11 +406,8 @@ class PanelScanViewModel @Inject constructor(
             return
         }
         
-        val hasCustomPanels = currentState.selectedPanels.isNotEmpty()
-        val useEmbedded = currentState.useEmbeddedPanels
-        
-        if (!hasCustomPanels && !useEmbedded) {
-            _state.update { it.copy(errorMessage = "Lütfen panel URL'si girin veya gömülü panelleri aktif edin") }
+        if (currentState.selectedPanels.isEmpty()) {
+            _state.update { it.copy(errorMessage = "Lütfen panel URL'si girin") }
             return
         }
 
@@ -400,17 +429,7 @@ class PanelScanViewModel @Inject constructor(
 
             try {
                 // Get panels to scan
-                val panelsToScan = mutableListOf<PanelInfo>()
-                
-                if (currentState.useEmbeddedPanels) {
-                    panelsToScan.addAll(
-                        EmbeddedPanels.panels.map { 
-                            PanelInfo(it.host, it.port, isEmbedded = true) 
-                        }
-                    )
-                }
-                
-                panelsToScan.addAll(currentState.selectedPanels)
+                val panelsToScan = currentState.selectedPanels.toMutableList()
 
                 if (panelsToScan.isEmpty()) {
                     _state.update { 
