@@ -16,6 +16,7 @@ import com.alibaba.feature.home.HomeScreen
 import com.alibaba.feature.manual.ManualRoute
 import com.alibaba.feature.exploittest.ExploitTestRoute
 import com.alibaba.feature.expirycheck.ExpiryCheckRoute
+import com.alibaba.feature.panelcheck.PanelCheckRoute
 import com.alibaba.feature.panelscan.PanelScanRoute
 import com.alibaba.feature.search.SearchRoute
 import com.alibaba.feature.auto.SideServerRoute
@@ -33,6 +34,7 @@ private object Routes {
     const val EXPLOITTEST = "exploittest"
     const val EXPIRYCHECK = "expirycheck"
     const val SIDESERVER = "sideserver"
+    const val PANELCHECK = "panelcheck"
 }
 
 @Composable
@@ -56,7 +58,8 @@ fun AlibabaNavHost(modifier: Modifier = Modifier) {
                 onPanelScanClick = { navController.navigate(Routes.PANELSCAN) },
                 onExploitTestClick = { navController.navigate(Routes.EXPLOITTEST) },
                 onExpiryCheckClick = { navController.navigate(Routes.EXPIRYCHECK) },
-                onSideServerClick = { navController.navigate(Routes.SIDESERVER) }
+                onSideServerClick = { navController.navigate(Routes.SIDESERVER) },
+                onPanelCheckClick = { navController.navigate(Routes.PANELCHECK) }
             )
         }
 
@@ -107,6 +110,12 @@ fun AlibabaNavHost(modifier: Modifier = Modifier) {
 
         composable(Routes.EXPIRYCHECK) {
             ExpiryCheckRoute(
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.PANELCHECK) {
+            PanelCheckRoute(
                 onNavigateBack = { navController.popBackStack() }
             )
         }

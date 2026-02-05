@@ -57,6 +57,7 @@ fun HomeScreen(
     onExploitTestClick: () -> Unit = {},
     onExpiryCheckClick: () -> Unit = {},
     onSideServerClick: () -> Unit = {},
+    onPanelCheckClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val menuItems = listOf(
@@ -68,7 +69,8 @@ fun HomeScreen(
         MenuItem("📅", "Bitiş Tarihi", "Abonelik kontrolü", Color(0xFF00BCD4), onExpiryCheckClick),
         MenuItem("🔄", "Karşılaştır", "İki listeyi karşılaştır", Color(0xFF795548), onCompareClick),
         MenuItem("📡", "Panel Tara", "IPTV panel tarayıcı", Color(0xFF607D8B), onPanelScanClick),
-        MenuItem("🔓", "Güvenlik", "Panel güvenlik testi", Color(0xFFF44336), onExploitTestClick)
+        MenuItem("🔓", "Güvenlik", "Panel güvenlik testi", Color(0xFFF44336), onExploitTestClick),
+        MenuItem("🛜", "Aktiflik Kontrol", "Panel aktiflik & port tara", Color(0xFF009688), onPanelCheckClick)
     )
 
     Scaffold(

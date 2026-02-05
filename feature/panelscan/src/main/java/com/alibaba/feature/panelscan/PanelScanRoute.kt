@@ -122,98 +122,15 @@ fun PanelScanRoute(
             )
         }
     ) { padding ->
-        // 📂 DOSYA YÜKLEME OVERLAY - Büyük dosya yüklenirken göster
-        if (state.isLoadingFile) {
-            Box(
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            // Ana içerik
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(padding)
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)),
-                contentAlignment = Alignment.Center
+                    .padding(16.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth(0.85f)
-                        .padding(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer
-                    )
-                ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        // Animasyonlu yükleme ikonu
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(64.dp),
-                            strokeWidth = 6.dp,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        
-                        Text(
-                            text = "🔥 Combo Dosyası Yükleniyor",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        
-                        Text(
-                            text = state.loadingMessage,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        
-                        // Progress bar
-                        if (state.loadingProgress > 0f) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                LinearProgressIndicator(
-                                    progress = { state.loadingProgress },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(8.dp),
-                                )
-                                Text(
-                                    text = "${(state.loadingProgress * 100).toInt()}%",
-                                    style = MaterialTheme.typography.labelMedium
-                                )
-                            }
-                        } else {
-                            LinearProgressIndicator(
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                        
-                        // Yüklenen hesap sayısı
-                        if (state.comboLineCount > 0) {
-                            Text(
-                                text = "📊 ${state.comboLineCount} hesap bulundu",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        
-                        Text(
-                            text = "💡 Büyük dosyalar için bu işlem biraz zaman alabilir",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        }
-        
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(16.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
             // 📚 Bilgilendirme Kartı - Kullanım Kılavuzu
             var showGuide by remember { mutableStateOf(true) }
             
@@ -743,8 +660,57 @@ fun PanelScanRoute(
                     )
                 }
             }
-        }
-    }
+            } // Column sonu
+
+            // 📂 DOSYA YÜKLEME / PANEL TEST OVERLAY - Box içinde Column'dan sonra = en üstte
+            if (state.isLoadingFile || state.isTestingPanels) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth(0.85f)
+                            .padding(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(64.dp),
+                                strokeWidth = 6.dp
+                            )
+                            Text(
+                                text = if (state.isTestingPanels) "🔍 Paneller Test Ediliyor" else "🔥 Combo Dosyası Yükleniyor",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = state.loadingMessage,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (state.loadingProgress > 0f) {
+                                LinearProgressIndicator(
+                                    progress = { state.loadingProgress },
+                                    modifier = Modifier.fillMaxWidth().height(8.dp)
+                                )
+                            } else {
+                                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                            }
+                        }
+                    }
+                }
+            }
+        } // Box
+    } // Scaffold
 }
 
 @Composable
