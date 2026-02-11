@@ -376,6 +376,7 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
             }
             
             if (ip != null) {
+                // HackerTarget Reverse IP
                 try {
                     val hackerTargetUrl = "https://api.hackertarget.com/reverseiplookup/?q=$ip"
                     val request2 = Request.Builder()
@@ -403,6 +404,34 @@ class SideServerScannerImpl @Inject constructor() : SideServerScanner {
                                 !isJunkDomain(it)
                             }
                             .forEach { domains.add(it) }
+                    }
+                } catch (e: Exception) { }
+
+                // RapidDNS Reverse IP - daha geniş veritabanı
+                try {
+                    val rapidDnsUrl = "https://rapiddns.io/sameip/$ip?full=1&down=1"
+                    val request3 = Request.Builder()
+                        .url(rapidDnsUrl)
+                        .header("User-Agent", mobileUserAgent)
+                        .header("Accept", "text/html,application/xhtml+xml")
+                        .get()
+                        .build()
+                    
+                    val response3 = withTimeoutOrNull(15000L) {
+                        httpClient.newCall(request3).execute()
+                    }
+                    
+                    if (response3 != null && response3.isSuccessful) {
+                        val body = response3.body?.string() ?: ""
+                        response3.close()
+                        
+                        val domainRegex = Regex("""<td>([a-zA-Z0-9][-a-zA-Z0-9]*(?:\.[a-zA-Z0-9][-a-zA-Z0-9]*)*\.[a-zA-Z]{2,})</td>""")
+                        domainRegex.findAll(body).forEach { match ->
+                            val domain = match.groupValues[1].lowercase().trim()
+                            if (domain.isNotBlank() && domain.contains(".") && !isJunkDomain(domain)) {
+                                domains.add(domain)
+                            }
+                        }
                     }
                 } catch (e: Exception) { }
             }
