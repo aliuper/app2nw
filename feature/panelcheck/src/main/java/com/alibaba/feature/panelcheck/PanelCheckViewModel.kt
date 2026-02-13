@@ -15,6 +15,7 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.URL
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 
 // ═══════════════════════════════════════════════════════════════
@@ -1074,7 +1075,7 @@ class PanelCheckViewModel @Inject constructor() : ViewModel() {
                 addLog("⏳ 255 IP × ${quickPorts.size} port = ${255 * quickPorts.size} bağlantı")
 
                 val semaphore = Semaphore(50)
-                var scannedCount = 0
+                val scannedCount = AtomicInteger(0)
                 val totalIps = 255
 
                 val jobs = (1..255).map { lastOctet ->
@@ -1082,8 +1083,8 @@ class PanelCheckViewModel @Inject constructor() : ViewModel() {
                         semaphore.withPermit {
                             val targetIp = "$baseIp.$lastOctet"
                             if (targetIp == ip) {
-                                scannedCount++
-                                return@withPermit // Orijinal IP'yi atla
+                                scannedCount.incrementAndGet()
+                                return@withPermit
                             }
 
                             var foundPort: Int? = null
@@ -1099,12 +1100,12 @@ class PanelCheckViewModel @Inject constructor() : ViewModel() {
                                 } catch (_: Exception) {}
                             }
 
-                            scannedCount++
-                            if (scannedCount % 20 == 0 || foundPort != null) {
+                            val count = scannedCount.incrementAndGet()
+                            if (count % 20 == 0 || foundPort != null) {
                                 _state.update { it.copy(
-                                    statusMessage = "🌐 IP Tarama: $scannedCount/$totalIps | ${relatedPanels.size} IPTV bulundu",
-                                    progress = scannedCount.toFloat() / totalIps,
-                                    discoveredDomainsCount = scannedCount,
+                                    statusMessage = "🌐 IP Tarama: $count/$totalIps | ${relatedPanels.size} IPTV bulundu",
+                                    progress = count.toFloat() / totalIps,
+                                    discoveredDomainsCount = count,
                                     iptvFoundCount = relatedPanels.size
                                 )}
                             }
