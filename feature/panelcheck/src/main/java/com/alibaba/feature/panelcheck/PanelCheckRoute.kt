@@ -154,11 +154,14 @@ fun PanelCheckRoute(
             }
 
             // İlerleme / Durum
-            if (state.isChecking || state.statusMessage.isNotBlank()) {
+            if (state.isChecking || state.isFindingRelated || state.statusMessage.isNotBlank()) {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer
+                        containerColor = if (state.isFindingRelated)
+                            MaterialTheme.colorScheme.tertiaryContainer
+                        else
+                            MaterialTheme.colorScheme.secondaryContainer
                     )
                 ) {
                     Column(
@@ -178,8 +181,19 @@ fun PanelCheckRoute(
                             )
                         }
 
+                        if (state.isFindingRelated) {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceEvenly
+                            ) {
+                                StatChip("📋 ${state.discoveredDomainsCount} domain", MaterialTheme.colorScheme.tertiary)
+                                StatChip("📡 ${state.iptvFoundCount} IPTV", MaterialTheme.colorScheme.primary)
+                            }
+                        }
+
                         // İstatistikler
-                        if (state.totalChecked > 0) {
+                        if (state.totalChecked > 0 && !state.isFindingRelated) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceEvenly
@@ -188,6 +202,72 @@ fun PanelCheckRoute(
                                 StatChip("❌ ${state.offlineCount}", MaterialTheme.colorScheme.error)
                                 if (state.portFoundCount > 0) {
                                     StatChip("🔍 ${state.portFoundCount} port", MaterialTheme.colorScheme.tertiary)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Tarama Log'u
+            if (state.scanLog.isNotEmpty()) {
+                var showLog by remember { mutableStateOf(state.isFindingRelated) }
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "📜 Tarama Log (${state.scanLog.size} satır)",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Row {
+                                IconButton(
+                                    onClick = {
+                                        clipboardManager.setText(AnnotatedString(viewModel.getScanLogText()))
+                                        Toast.makeText(context, "Log kopyalandı!", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(Icons.Default.ContentCopy, "Log Kopyala", modifier = Modifier.size(16.dp))
+                                }
+                                IconButton(
+                                    onClick = { showLog = !showLog },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        if (showLog) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                        "Aç/Kapat", modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                        AnimatedVisibility(visible = showLog) {
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                state.scanLog.forEach { line ->
+                                    Text(
+                                        text = line,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontSize = 11.sp,
+                                        lineHeight = 14.sp,
+                                        color = when {
+                                            line.startsWith("✅") -> MaterialTheme.colorScheme.primary
+                                            line.startsWith("❌") -> MaterialTheme.colorScheme.error
+                                            line.startsWith("⚠️") -> MaterialTheme.colorScheme.tertiary
+                                            line.startsWith("━") -> MaterialTheme.colorScheme.onSurface
+                                            line.startsWith("  📡") -> MaterialTheme.colorScheme.primary
+                                            line.startsWith("  🎯") -> MaterialTheme.colorScheme.tertiary
+                                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                        }
+                                    )
                                 }
                             }
                         }
@@ -423,42 +503,130 @@ private fun PanelCheckResultCard(
                 }
             }
 
-            // İlişkili paneller
-            if (result.relatedDomains.isNotEmpty()) {
+            // Bulunan TÜM domainler
+            if (result.allDiscoveredDomains.isNotEmpty()) {
+                var showAllDomains by remember { mutableStateOf(false) }
                 HorizontalDivider()
-                Text(
-                    text = "🔗 Bulunan İlişkili Paneller (${result.relatedDomains.size}):",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-
-                result.relatedDomains.forEach { related ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "${if (related.isOnline) "✅" else "⚪"} ${related.domain}${if (related.port != null) ":${related.port}" else ""}",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = if (related.isOnline) FontWeight.Bold else FontWeight.Normal,
-                                color = if (related.isOnline) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = "${related.source} | IP: ${related.ip}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "� Bulunan Domainler (${result.allDiscoveredDomains.size}):",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.tertiary
+                    )
+                    Row {
+                        IconButton(
+                            onClick = {
+                                val text = result.allDiscoveredDomains.joinToString("\n")
+                                onCopyAddress(text)
+                            },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(Icons.Default.ContentCopy, "Tümünü Kopyala", modifier = Modifier.size(14.dp))
+                        }
+                        IconButton(
+                            onClick = { showAllDomains = !showAllDomains },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                if (showAllDomains) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                "Aç/Kapat", modifier = Modifier.size(14.dp)
                             )
                         }
+                    }
+                }
+                AnimatedVisibility(visible = showAllDomains) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        result.allDiscoveredDomains.forEach { domain ->
+                            val isIptv = result.relatedDomains.any { it.domain == domain && it.isOnline }
+                            Text(
+                                text = "${if (isIptv) "📡" else "•"} $domain",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontSize = 11.sp,
+                                color = if (isIptv) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
 
-                        if (related.isOnline && related.port != null) {
+            // İlişkili IPTV paneller
+            if (result.relatedDomains.isNotEmpty()) {
+                val onlinePanels = result.relatedDomains.filter { it.isOnline }
+                val offlinePanels = result.relatedDomains.filter { !it.isOnline }
+
+                if (onlinePanels.isNotEmpty()) {
+                    HorizontalDivider()
+                    Text(
+                        text = "📡 IPTV Paneller (${onlinePanels.size} aktif):",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    onlinePanels.forEach { related ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "✅ ${related.domain}:${related.port}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = "${related.source} | IP: ${related.ip}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                             IconButton(
                                 onClick = { onCopyAddress("${related.domain}:${related.port}") },
                                 modifier = Modifier.size(28.dp)
                             ) {
                                 Icon(Icons.Default.ContentCopy, "Kopyala", modifier = Modifier.size(14.dp))
+                            }
+                        }
+                    }
+                }
+
+                if (offlinePanels.isNotEmpty()) {
+                    var showOffline by remember { mutableStateOf(false) }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "⚪ ${offlinePanels.size} domain IPTV yok",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(
+                            onClick = { showOffline = !showOffline },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                if (showOffline) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                null, modifier = Modifier.size(12.dp)
+                            )
+                        }
+                    }
+                    AnimatedVisibility(visible = showOffline) {
+                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            offlinePanels.forEach { related ->
+                                Text(
+                                    text = "  ⚪ ${related.domain} (${related.source})",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                     }

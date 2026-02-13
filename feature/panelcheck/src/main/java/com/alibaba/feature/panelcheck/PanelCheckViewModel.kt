@@ -30,6 +30,7 @@ data class PanelCheckResult(
     val serverInfo: String? = null,
     val ipAddress: String? = null,
     val relatedDomains: List<RelatedPanel> = emptyList(),
+    val allDiscoveredDomains: List<String> = emptyList(), // TÜM bulunan domainler
     val errorMessage: String? = null,
     val portsScanned: List<PortScanResult> = emptyList()
 )
@@ -62,7 +63,11 @@ data class PanelCheckState(
     val totalChecked: Int = 0,
     val onlineCount: Int = 0,
     val offlineCount: Int = 0,
-    val portFoundCount: Int = 0
+    val portFoundCount: Int = 0,
+    // Yan panel arama log'u
+    val scanLog: List<String> = emptyList(),
+    val discoveredDomainsCount: Int = 0,
+    val iptvFoundCount: Int = 0
 )
 
 @HiltViewModel
@@ -412,9 +417,16 @@ class PanelCheckViewModel @Inject constructor() : ViewModel() {
     // YAN PANEL BULMA - Reverse IP + Domain Varyasyon + Subdomain
     // ═══════════════════════════════════════════════════════════════
 
+    private fun addLog(message: String) {
+        _state.update { it.copy(
+            scanLog = it.scanLog + message,
+            statusMessage = message
+        )}
+    }
+
     /**
      * 🔥 Gelişmiş Yan Panel Bulma Sistemi
-     * 1. Reverse IP Lookup (hackertarget, rapiddns) → aynı IP'deki TÜM domainler
+     * 1. Reverse IP Lookup (hackertarget, rapiddns, host.io) → aynı IP'deki TÜM domainler
      * 2. Domain varyasyon keşfi (numara pattern, prefix/suffix)
      * 3. Reverse DNS
      * 4. Subdomain brute-force
@@ -429,138 +441,129 @@ class PanelCheckViewModel @Inject constructor() : ViewModel() {
             _state.update {
                 it.copy(
                     isFindingRelated = true,
-                    statusMessage = "🔍 $host için yan paneller aranıyor..."
+                    scanLog = emptyList(),
+                    discoveredDomainsCount = 0,
+                    iptvFoundCount = 0,
+                    statusMessage = "🔍 $host ($ip) için yan paneller aranıyor..."
                 )
             }
 
             val relatedPanels = mutableListOf<RelatedPanel>()
-            val discoveredDomains = mutableSetOf<String>()
-            discoveredDomains.add(host) // orijinali atla
+            val allDomains = mutableSetOf<String>()
+            allDomains.add(host)
 
             withContext(Dispatchers.IO) {
+                addLog("📍 Hedef: $host → IP: $ip")
+
                 // ══════════════════════════════════════════════════
-                // YÖNTEM 1: REVERSE IP LOOKUP (EN ÖNEMLİ!)
-                // Aynı IP adresindeki TÜM domainleri dış API'lerle bul
+                // YÖNTEM 1: REVERSE IP LOOKUP API'LERİ
                 // ══════════════════════════════════════════════════
-                _state.update { it.copy(statusMessage = "🌐 Reverse IP Lookup yapılıyor ($ip)...") }
+                addLog("━━━ ADIM 1: Reverse IP Lookup ━━━")
 
                 val reverseIpDomains = mutableListOf<String>()
 
-                // API 1: HackerTarget - en güvenilir ücretsiz API
+                // API 1: HackerTarget
+                addLog("🌐 [1/4] HackerTarget API sorgulanıyor...")
                 try {
                     val htDomains = reverseIpHackerTarget(ip)
                     reverseIpDomains.addAll(htDomains)
-                    _state.update { it.copy(statusMessage = "🌐 HackerTarget: ${htDomains.size} domain bulundu") }
-                } catch (_: Exception) {}
+                    addLog("✅ HackerTarget: ${htDomains.size} domain bulundu")
+                } catch (e: Exception) {
+                    addLog("❌ HackerTarget HATA: ${e.message?.take(80)}")
+                }
 
-                // API 2: RapidDNS - daha geniş veritabanı
+                // API 2: RapidDNS
+                addLog("🌐 [2/4] RapidDNS API sorgulanıyor...")
                 try {
                     val rdDomains = reverseIpRapidDns(ip)
                     reverseIpDomains.addAll(rdDomains)
-                    _state.update { it.copy(statusMessage = "🌐 RapidDNS: +${rdDomains.size} domain bulundu (Toplam: ${reverseIpDomains.distinct().size})") }
-                } catch (_: Exception) {}
+                    addLog("✅ RapidDNS: ${rdDomains.size} domain bulundu")
+                } catch (e: Exception) {
+                    addLog("❌ RapidDNS HATA: ${e.message?.take(80)}")
+                }
 
-                // API 3: ViewDNS benzeri - ek kaynak
+                // API 3: Host.io
+                addLog("🌐 [3/4] Host.io API sorgulanıyor...")
                 try {
-                    val secDomains = reverseIpSecurityTrails(ip)
-                    reverseIpDomains.addAll(secDomains)
-                } catch (_: Exception) {}
-
-                // Bulunan domainlerde IPTV tespiti yap
-                val uniqueReverseDomains = reverseIpDomains.distinct().filter { it != host && it !in discoveredDomains }
-                discoveredDomains.addAll(uniqueReverseDomains)
-
-                _state.update { it.copy(statusMessage = "📡 ${uniqueReverseDomains.size} domain'de IPTV taranıyor...") }
-
-                val reverseIpSemaphore = Semaphore(15)
-                val reverseJobs = uniqueReverseDomains.map { domain ->
-                    async {
-                        reverseIpSemaphore.withPermit {
-                            testDomainForIptv(domain, ip, "Reverse IP Lookup")
-                        }
-                    }
+                    val hiDomains = reverseIpHostIo(ip)
+                    reverseIpDomains.addAll(hiDomains)
+                    addLog("✅ Host.io: ${hiDomains.size} domain bulundu")
+                } catch (e: Exception) {
+                    addLog("❌ Host.io HATA: ${e.message?.take(80)}")
                 }
 
-                reverseJobs.forEachIndexed { index, job ->
-                    val panel = job.await()
-                    if (panel != null) {
-                        relatedPanels.add(panel)
-                    }
-                    if (index % 10 == 0 || index == reverseJobs.size - 1) {
-                        _state.update {
-                            it.copy(statusMessage = "📡 Reverse IP IPTV tarama: ${index + 1}/${uniqueReverseDomains.size} - ${relatedPanels.size} IPTV bulundu")
-                        }
-                    }
+                // API 4: HackerTarget HostSearch
+                addLog("🌐 [4/4] HostSearch API sorgulanıyor...")
+                try {
+                    val hsDomains = reverseIpHostSearch(ip)
+                    reverseIpDomains.addAll(hsDomains)
+                    addLog("✅ HostSearch: ${hsDomains.size} domain bulundu")
+                } catch (e: Exception) {
+                    addLog("❌ HostSearch HATA: ${e.message?.take(80)}")
                 }
 
-                // ══════════════════════════════════════════════════
-                // YÖNTEM 2: DOMAIN VARYASYON KEŞFİ
-                // maxdigitalandroid.xyz → 000android.xyz gibi pattern'leri bul
-                // ══════════════════════════════════════════════════
-                _state.update { it.copy(statusMessage = "🔄 Domain varyasyonları deneniyor...") }
+                val uniqueReverse = reverseIpDomains.distinct().filter { it != host && it !in allDomains }
+                allDomains.addAll(uniqueReverse)
+                addLog("📊 Reverse IP Toplam: ${uniqueReverse.size} benzersiz domain")
+                _state.update { it.copy(discoveredDomainsCount = allDomains.size - 1) }
 
-                val domainVariations = generateDomainVariations(host)
-                val variationSemaphore = Semaphore(15)
-                val variationJobs = domainVariations.filter { it !in discoveredDomains }.map { variation ->
-                    async {
-                        variationSemaphore.withPermit {
-                            try {
-                                val resolvedIp = InetAddress.getByName(variation).hostAddress
-                                if (resolvedIp != null) {
-                                    val port = tryFindIptvPort(variation)
-                                    if (port != null) {
-                                        RelatedPanel(
-                                            domain = variation,
-                                            ip = resolvedIp,
-                                            port = port,
-                                            isOnline = true,
-                                            source = if (resolvedIp == ip) "Aynı IP - Varyasyon" else "Farklı IP - Varyasyon"
-                                        )
-                                    } else null
-                                } else null
-                            } catch (_: Exception) { null }
+                // IPTV tespiti
+                if (uniqueReverse.isNotEmpty()) {
+                    addLog("━━━ ADIM 2: ${uniqueReverse.size} domain'de IPTV taranıyor ━━━")
+                    val reverseIpSemaphore = Semaphore(15)
+                    val reverseJobs = uniqueReverse.map { domain ->
+                        async {
+                            reverseIpSemaphore.withPermit {
+                                testDomainForIptv(domain, ip, "Reverse IP")
+                            }
                         }
                     }
-                }
-
-                variationJobs.forEachIndexed { index, job ->
-                    val panel = job.await()
-                    if (panel != null) {
-                        relatedPanels.add(panel)
-                        discoveredDomains.add(panel.domain)
-                    }
-                    if (index % 20 == 0) {
-                        _state.update {
-                            it.copy(statusMessage = "🔄 Varyasyon: ${index + 1}/${variationJobs.size} - ${relatedPanels.size} bulundu")
+                    reverseJobs.forEachIndexed { index, job ->
+                        val panel = job.await()
+                        if (panel != null) {
+                            relatedPanels.add(panel)
+                            if (panel.isOnline) {
+                                addLog("  📡 IPTV bulundu: ${panel.domain}:${panel.port} (${panel.source})")
+                            }
+                        }
+                        if ((index + 1) % 10 == 0 || index == reverseJobs.size - 1) {
+                            _state.update { it.copy(
+                                statusMessage = "📡 IPTV tarama: ${index + 1}/${uniqueReverse.size}",
+                                iptvFoundCount = relatedPanels.count { it.isOnline }
+                            )}
                         }
                     }
+                    addLog("📊 Reverse IP IPTV sonuç: ${relatedPanels.count { it.isOnline }} aktif panel")
+                } else {
+                    addLog("⚠️ Reverse IP'den hiç domain bulunamadı - API limiti olabilir")
                 }
 
                 // ══════════════════════════════════════════════════
-                // YÖNTEM 3: REVERSE DNS
+                // YÖNTEM 2: REVERSE DNS
                 // ══════════════════════════════════════════════════
+                addLog("━━━ ADIM 3: Reverse DNS ━━━")
                 try {
                     val reverseName = InetAddress.getByName(ip).canonicalHostName
-                    if (reverseName != ip && reverseName !in discoveredDomains) {
-                        discoveredDomains.add(reverseName)
+                    if (reverseName != ip && reverseName !in allDomains) {
+                        allDomains.add(reverseName)
                         val port = tryFindIptvPort(reverseName)
-                        relatedPanels.add(
-                            RelatedPanel(
-                                domain = reverseName,
-                                ip = ip,
-                                port = port,
-                                isOnline = port != null,
-                                source = "Reverse DNS"
-                            )
-                        )
+                        relatedPanels.add(RelatedPanel(
+                            domain = reverseName, ip = ip, port = port,
+                            isOnline = port != null, source = "Reverse DNS"
+                        ))
+                        addLog("✅ Reverse DNS: $reverseName${if (port != null) " (IPTV port: $port)" else " (IPTV yok)"}")
+                    } else {
+                        addLog("⚠️ Reverse DNS: ${if (reverseName == ip) "sadece IP döndü" else "zaten listede"}")
                     }
-                } catch (_: Exception) {}
+                } catch (e: Exception) {
+                    addLog("❌ Reverse DNS HATA: ${e.message?.take(80)}")
+                }
+                _state.update { it.copy(discoveredDomainsCount = allDomains.size - 1) }
 
                 // ══════════════════════════════════════════════════
-                // YÖNTEM 4: SUBDOMAIN BRUTE-FORCE
+                // YÖNTEM 3: SUBDOMAIN BRUTE-FORCE
                 // ══════════════════════════════════════════════════
-                _state.update { it.copy(statusMessage = "🔎 Subdomain taranıyor...") }
-
+                addLog("━━━ ADIM 4: Subdomain taraması ━━━")
                 val baseDomain = extractBaseDomain(host)
                 val subdomainPrefixes = listOf(
                     "panel", "iptv", "tv", "stream", "live", "play",
@@ -572,76 +575,131 @@ class PanelCheckViewModel @Inject constructor() : ViewModel() {
                     "new", "old", "v2", "v3",
                     "main", "backup", "mirror"
                 )
-
+                var subFound = 0
                 val subdomainSemaphore = Semaphore(10)
                 val subJobs = subdomainPrefixes.map { prefix ->
                     async {
                         subdomainSemaphore.withPermit {
                             val testDomain = "$prefix.$baseDomain"
-                            if (testDomain !in discoveredDomains) {
+                            if (testDomain !in allDomains) {
                                 try {
                                     val resolvedIp = InetAddress.getByName(testDomain).hostAddress
-                                    val port = tryFindIptvPort(testDomain)
-                                    RelatedPanel(
-                                        domain = testDomain,
-                                        ip = resolvedIp ?: "",
-                                        port = port,
-                                        isOnline = port != null,
-                                        source = if (resolvedIp == ip) "Aynı IP - Subdomain" else "Farklı IP - Subdomain"
-                                    )
+                                    if (resolvedIp != null) {
+                                        allDomains.add(testDomain)
+                                        val port = tryFindIptvPort(testDomain)
+                                        RelatedPanel(
+                                            domain = testDomain, ip = resolvedIp ?: "", port = port,
+                                            isOnline = port != null,
+                                            source = if (resolvedIp == ip) "Aynı IP - Subdomain" else "Farklı IP - Subdomain"
+                                        )
+                                    } else null
                                 } catch (_: Exception) { null }
                             } else null
                         }
                     }
                 }
-
                 subJobs.forEach { job ->
                     val panel = job.await()
                     if (panel != null) {
                         relatedPanels.add(panel)
-                        discoveredDomains.add(panel.domain)
+                        subFound++
+                        addLog("  🔎 Subdomain: ${panel.domain} → ${panel.ip}${if (panel.isOnline) " (IPTV ✅)" else ""}")
                     }
                 }
+                addLog("📊 Subdomain sonuç: $subFound bulundu")
+                _state.update { it.copy(discoveredDomainsCount = allDomains.size - 1) }
+
+                // ══════════════════════════════════════════════════
+                // YÖNTEM 4: DOMAIN VARYASYON KEŞFİ
+                // ══════════════════════════════════════════════════
+                addLog("━━━ ADIM 5: Domain varyasyonları ━━━")
+                val domainVariations = generateDomainVariations(host)
+                addLog("🔄 ${domainVariations.size} varyasyon üretildi, DNS sorgulanıyor...")
+                var varFound = 0
+                val variationSemaphore = Semaphore(20)
+                val variationJobs = domainVariations.filter { it !in allDomains }.map { variation ->
+                    async {
+                        variationSemaphore.withPermit {
+                            try {
+                                val resolvedIp = InetAddress.getByName(variation).hostAddress
+                                if (resolvedIp != null) {
+                                    allDomains.add(variation)
+                                    val port = tryFindIptvPort(variation)
+                                    if (port != null) {
+                                        RelatedPanel(
+                                            domain = variation, ip = resolvedIp, port = port, isOnline = true,
+                                            source = if (resolvedIp == ip) "Aynı IP - Varyasyon" else "Farklı IP - Varyasyon"
+                                        )
+                                    } else null
+                                } else null
+                            } catch (_: Exception) { null }
+                        }
+                    }
+                }
+                variationJobs.forEachIndexed { index, job ->
+                    val panel = job.await()
+                    if (panel != null) {
+                        relatedPanels.add(panel)
+                        varFound++
+                        addLog("  🎯 Varyasyon IPTV: ${panel.domain}:${panel.port} (${panel.source})")
+                    }
+                    if ((index + 1) % 50 == 0) {
+                        _state.update { it.copy(
+                            statusMessage = "🔄 Varyasyon: ${index + 1}/${variationJobs.size}",
+                            discoveredDomainsCount = allDomains.size - 1
+                        )}
+                    }
+                }
+                addLog("📊 Varyasyon sonuç: $varFound IPTV panel bulundu")
 
                 // ══════════════════════════════════════════════════
                 // YÖNTEM 5: AYNI IP FARKLI PORTLAR
                 // ══════════════════════════════════════════════════
+                addLog("━━━ ADIM 6: Aynı IP farklı portlar ━━━")
                 val ipPorts = listOf(80, 8080, 8880, 8888, 25461, 25462, 443, 8000, 8001, 9090)
                 val currentPort = result.detectedPort
                 ipPorts.filter { it != currentPort }.forEach { port ->
                     try {
                         if (testIptvEndpoint(ip, port)) {
-                            relatedPanels.add(
-                                RelatedPanel(
-                                    domain = ip,
-                                    ip = ip,
-                                    port = port,
-                                    isOnline = true,
-                                    source = "Aynı IP farklı port"
-                                )
-                            )
+                            relatedPanels.add(RelatedPanel(
+                                domain = ip, ip = ip, port = port,
+                                isOnline = true, source = "Aynı IP farklı port"
+                            ))
+                            addLog("  📡 $ip:$port → IPTV panel ✅")
                         }
                     } catch (_: Exception) {}
                 }
             }
 
-            // Sonucu güncelle - online olanları öne al
+            // Sonucu güncelle
             val sortedPanels = relatedPanels.sortedWith(
                 compareByDescending<RelatedPanel> { it.isOnline }
                     .thenByDescending { it.source.contains("Reverse IP") }
                     .thenByDescending { it.source.contains("Varyasyon") }
             )
+            val allDomainsList = allDomains.filter { it != host }.toList()
+            val onlineCount = sortedPanels.count { it.isOnline }
 
             val updatedResults = _state.value.results.map { r ->
-                if (r.host == host) r.copy(relatedDomains = sortedPanels) else r
+                if (r.host == host) r.copy(
+                    relatedDomains = sortedPanels,
+                    allDiscoveredDomains = allDomainsList
+                ) else r
             }
 
-            val onlineRelated = sortedPanels.count { it.isOnline }
+            addLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            addLog("✅ TAMAMLANDI:")
+            addLog("  📋 Toplam domain: ${allDomainsList.size}")
+            addLog("  📡 IPTV panel: $onlineCount")
+            addLog("  🔗 İlişkili: ${sortedPanels.size}")
+
             _state.update {
                 it.copy(
                     isFindingRelated = false,
                     results = updatedResults,
-                    statusMessage = "✅ ${sortedPanels.size} ilişkili domain bulundu ($onlineRelated IPTV aktif)"
+                    discoveredDomainsCount = allDomainsList.size,
+                    iptvFoundCount = onlineCount,
+                    statusMessage = "✅ ${allDomainsList.size} domain bulundu, $onlineCount IPTV aktif"
                 )
             }
         }
@@ -651,52 +709,131 @@ class PanelCheckViewModel @Inject constructor() : ViewModel() {
     // REVERSE IP LOOKUP API'LERİ
     // ═══════════════════════════════════════════════════════════════
 
+    private val apiUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
     /**
      * HackerTarget Reverse IP Lookup
      * API: https://api.hackertarget.com/reverseiplookup/?q=IP
-     * Ücretsiz, API key gerektirmez, güvenilir
      */
     private fun reverseIpHackerTarget(ip: String): List<String> {
         val url = URL("https://api.hackertarget.com/reverseiplookup/?q=$ip")
         val conn = url.openConnection() as HttpURLConnection
-        conn.connectTimeout = 10000
-        conn.readTimeout = 10000
-        conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        conn.connectTimeout = 15000
+        conn.readTimeout = 15000
+        conn.setRequestProperty("User-Agent", apiUserAgent)
+
+        val responseCode = conn.responseCode
+        if (responseCode != 200) {
+            conn.disconnect()
+            throw Exception("HTTP $responseCode")
+        }
 
         val body = conn.inputStream.bufferedReader().readText()
         conn.disconnect()
 
-        if (body.contains("error") || body.contains("API count exceeded")) {
-            return emptyList()
+        if (body.contains("error", ignoreCase = true) || body.contains("API count exceeded", ignoreCase = true)) {
+            throw Exception("API limit: ${body.take(100)}")
         }
 
         return body.split("\n")
-            .map { it.trim() }
-            .filter { it.isNotBlank() && it.contains(".") && !it.contains(" ") }
+            .map { it.trim().lowercase() }
+            .filter { it.isNotBlank() && it.contains(".") && !it.contains(" ") && !it.startsWith("no ") }
     }
 
     /**
      * RapidDNS Reverse IP Lookup
      * URL: https://rapiddns.io/sameip/IP?full=1
-     * HTML sayfasından domain listesini parse et
      */
     private fun reverseIpRapidDns(ip: String): List<String> {
-        val url = URL("https://rapiddns.io/sameip/$ip?full=1&down=1")
+        val url = URL("https://rapiddns.io/sameip/$ip?full=1")
         val conn = url.openConnection() as HttpURLConnection
-        conn.connectTimeout = 15000
-        conn.readTimeout = 15000
-        conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-        conn.setRequestProperty("Accept", "text/html,application/xhtml+xml")
+        conn.connectTimeout = 20000
+        conn.readTimeout = 20000
+        conn.setRequestProperty("User-Agent", apiUserAgent)
+        conn.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        conn.setRequestProperty("Accept-Language", "en-US,en;q=0.5")
+
+        val responseCode = conn.responseCode
+        if (responseCode != 200) {
+            conn.disconnect()
+            throw Exception("HTTP $responseCode")
+        }
 
         val body = conn.inputStream.bufferedReader().readText()
         conn.disconnect()
 
-        // HTML'den domain çıkar - tablo satırlarındaki domainler
         val domains = mutableListOf<String>()
-        val domainRegex = Regex("""<td>([a-zA-Z0-9][-a-zA-Z0-9]*(?:\.[a-zA-Z0-9][-a-zA-Z0-9]*)*\.[a-zA-Z]{2,})</td>""")
+        // Tablo satırlarından domain çıkar
+        val domainRegex = Regex("""<td>\s*([a-zA-Z0-9][-a-zA-Z0-9]*(?:\.[a-zA-Z0-9][-a-zA-Z0-9]*)*\.[a-zA-Z]{2,})\s*</td>""")
         domainRegex.findAll(body).forEach { match ->
             val domain = match.groupValues[1].lowercase().trim()
+            if (domain.isNotBlank() && domain.contains(".") && !domain.contains("rapiddns")) {
+                domains.add(domain)
+            }
+        }
+
+        // Eğer tablo bulunamazsa, href link'lerinden dene
+        if (domains.isEmpty()) {
+            val hrefRegex = Regex("""href="[^"]*">([a-zA-Z0-9][-a-zA-Z0-9]*(?:\.[a-zA-Z0-9][-a-zA-Z0-9]*)+)</a>""")
+            hrefRegex.findAll(body).forEach { match ->
+                val domain = match.groupValues[1].lowercase().trim()
+                if (domain.contains(".") && !domain.contains("rapiddns")) {
+                    domains.add(domain)
+                }
+            }
+        }
+
+        return domains.distinct()
+    }
+
+    /**
+     * Host.io Reverse IP Lookup
+     * URL: https://host.io/api/domains/ip/IP
+     * Alternatif: web sayfasını parse et
+     */
+    private fun reverseIpHostIo(ip: String): List<String> {
+        // Host.io web sayfasından domain bilgisi çek
+        val url = URL("https://host.io/ip/$ip")
+        val conn = url.openConnection() as HttpURLConnection
+        conn.connectTimeout = 15000
+        conn.readTimeout = 15000
+        conn.setRequestProperty("User-Agent", apiUserAgent)
+        conn.setRequestProperty("Accept", "text/html,application/xhtml+xml")
+
+        val responseCode = conn.responseCode
+        if (responseCode != 200) {
+            conn.disconnect()
+            throw Exception("HTTP $responseCode")
+        }
+
+        val body = conn.inputStream.bufferedReader().readText()
+        conn.disconnect()
+
+        val domains = mutableListOf<String>()
+
+        // JSON verisinden domain çıkar
+        val jsonDomainRegex = Regex(""""domain"\s*:\s*"([^"]+)"""")
+        jsonDomainRegex.findAll(body).forEach { match ->
+            val domain = match.groupValues[1].lowercase().trim()
             if (domain.isNotBlank() && domain.contains(".")) {
+                domains.add(domain)
+            }
+        }
+
+        // HTML href link'lerinden domain çıkar
+        val hrefRegex = Regex("""href="/[^"]*">([a-zA-Z0-9][-a-zA-Z0-9]*\.[a-zA-Z0-9][-a-zA-Z0-9]*(?:\.[a-zA-Z]{2,}))</a>""")
+        hrefRegex.findAll(body).forEach { match ->
+            val domain = match.groupValues[1].lowercase().trim()
+            if (domain.contains(".") && !domain.contains("host.io")) {
+                domains.add(domain)
+            }
+        }
+
+        // Düz metin domain pattern'leri
+        val textDomainRegex = Regex("""(?<![a-zA-Z0-9./-])([a-zA-Z0-9][-a-zA-Z0-9]{1,60}\.(?:xyz|com|net|live|tv|org|info|me|io|pro|online|site|club|fun|top))(?![a-zA-Z0-9./-])""")
+        textDomainRegex.findAll(body).forEach { match ->
+            val domain = match.groupValues[1].lowercase().trim()
+            if (!domain.contains("host.io") && !domain.contains("google") && !domain.contains("cloudflare")) {
                 domains.add(domain)
             }
         }
@@ -705,31 +842,35 @@ class PanelCheckViewModel @Inject constructor() : ViewModel() {
     }
 
     /**
-     * Ek Reverse IP kaynağı - ip-api benzeri
+     * HackerTarget HostSearch
+     * API: https://api.hackertarget.com/hostsearch/?q=DOMAIN
      */
-    private fun reverseIpSecurityTrails(ip: String): List<String> {
-        // Yedek API: ipinfo benzeri basit lookup
-        return try {
-            val url = URL("https://api.hackertarget.com/hostsearch/?q=$ip")
-            val conn = url.openConnection() as HttpURLConnection
-            conn.connectTimeout = 10000
-            conn.readTimeout = 10000
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0")
+    private fun reverseIpHostSearch(ip: String): List<String> {
+        val url = URL("https://api.hackertarget.com/hostsearch/?q=$ip")
+        val conn = url.openConnection() as HttpURLConnection
+        conn.connectTimeout = 15000
+        conn.readTimeout = 15000
+        conn.setRequestProperty("User-Agent", apiUserAgent)
 
-            val body = conn.inputStream.bufferedReader().readText()
+        val responseCode = conn.responseCode
+        if (responseCode != 200) {
             conn.disconnect()
-
-            if (body.contains("error")) return emptyList()
-
-            body.split("\n")
-                .mapNotNull { line ->
-                    val parts = line.split(",")
-                    if (parts.size >= 2 && parts[1].trim() == ip) parts[0].trim() else null
-                }
-                .filter { it.isNotBlank() && it.contains(".") }
-        } catch (_: Exception) {
-            emptyList()
+            throw Exception("HTTP $responseCode")
         }
+
+        val body = conn.inputStream.bufferedReader().readText()
+        conn.disconnect()
+
+        if (body.contains("error", ignoreCase = true)) {
+            throw Exception("API error: ${body.take(100)}")
+        }
+
+        return body.split("\n")
+            .mapNotNull { line ->
+                val parts = line.split(",")
+                if (parts.size >= 2 && parts[1].trim() == ip) parts[0].trim().lowercase() else null
+            }
+            .filter { it.isNotBlank() && it.contains(".") }
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -739,24 +880,15 @@ class PanelCheckViewModel @Inject constructor() : ViewModel() {
     /**
      * Domain adı varyasyonları üret
      * maxdigitalandroid.xyz → 000android.xyz, 001android.xyz, newandroid.xyz vb.
-     * 
-     * Strateji:
-     * 1. Sayısal prefix/suffix değiştirme (000, 001, 123, max → numara)
-     * 2. Kelime parçası değiştirme (maxdigital → farklı prefix)
-     * 3. TLD değiştirme (.xyz → .com, .live, .tv)
-     * 4. Yaygın IPTV naming pattern'leri
      */
     private fun generateDomainVariations(host: String): List<String> {
         val variations = mutableSetOf<String>()
         val parts = host.split(".")
         if (parts.size < 2) return emptyList()
 
-        val tld = parts.last() // xyz
-        val domainName = parts.dropLast(1).joinToString(".") // maxdigitalandroid
-        val baseDomain = extractBaseDomain(host) // android.xyz (son 2 parça)
+        val tld = parts.last()
+        val domainName = parts.dropLast(1).joinToString(".")
 
-        // 1. Sayısal prefix varyasyonları
-        // maxdigitalandroid → [000, 001, 002, ..., 010, 100, max, new, old, pro, vip] + android
         val numberPrefixes = (0..20).map { "%03d".format(it) } +
                 (0..9).map { it.toString() } +
                 listOf("00", "01", "02", "03", "10", "11", "20", "99", "100", "123", "321", "999")
@@ -768,36 +900,22 @@ class PanelCheckViewModel @Inject constructor() : ViewModel() {
             "big", "mini", "global", "world", "star", "king", "royal", "elite", "prime"
         )
 
-        // Domain'deki kelime parçalarını bul
-        // maxdigitalandroid → ["max", "digital", "android"]
         val wordBoundaries = findWordBoundaries(domainName)
 
         if (wordBoundaries.size > 1) {
-            // Son kelimeyi koru, ilk kısımları değiştir
             val lastWord = wordBoundaries.last()
             val firstPart = domainName.substringBefore(lastWord)
 
-            // Sayısal prefix + son kelime
-            numberPrefixes.forEach { num ->
-                variations.add("$num$lastWord.$tld")
-            }
-
-            // Kelime prefix + son kelime
+            numberPrefixes.forEach { num -> variations.add("$num$lastWord.$tld") }
             wordPrefixes.forEach { word ->
-                if (word != firstPart.lowercase()) {
-                    variations.add("$word$lastWord.$tld")
-                }
+                if (word != firstPart.lowercase()) variations.add("$word$lastWord.$tld")
             }
 
-            // İlk kelimeyi koru, ortadaki/son kısmı değiştir
             if (wordBoundaries.size > 2) {
                 val firstWord = wordBoundaries.first()
-                numberPrefixes.take(10).forEach { num ->
-                    variations.add("$firstWord$num.$tld")
-                }
+                numberPrefixes.take(10).forEach { num -> variations.add("$firstWord$num.$tld") }
             }
         } else {
-            // Tek kelime domain - prefix/suffix dene
             numberPrefixes.forEach { num ->
                 variations.add("$num$domainName.$tld")
                 variations.add("$domainName$num.$tld")
@@ -808,14 +926,9 @@ class PanelCheckViewModel @Inject constructor() : ViewModel() {
             }
         }
 
-        // 2. TLD varyasyonları
         val altTlds = listOf("xyz", "com", "live", "tv", "net", "org", "info", "me", "co", "io", "pro", "online", "site", "club", "fun", "top")
-        altTlds.filter { it != tld }.forEach { altTld ->
-            variations.add("$domainName.$altTld")
-        }
+        altTlds.filter { it != tld }.forEach { altTld -> variations.add("$domainName.$altTld") }
 
-        // 3. Küçük değişiklikler (1 karakter fark)
-        // android → andr0id, andr01d vb.
         val leetMap = mapOf('o' to '0', 'i' to '1', 'e' to '3', 'a' to '4', 's' to '5', 'l' to '1')
         leetMap.forEach { (original, replacement) ->
             if (domainName.contains(original)) {
@@ -826,12 +939,7 @@ class PanelCheckViewModel @Inject constructor() : ViewModel() {
         return variations.filter { it != host }.toList()
     }
 
-    /**
-     * Domain adındaki kelime sınırlarını bul
-     * "maxdigitalandroid" → ["max", "digital", "android"]
-     */
     private fun findWordBoundaries(name: String): List<String> {
-        // Yaygın IPTV kelimelerini tanı
         val knownWords = listOf(
             "android", "digital", "stream", "iptv", "panel", "server", "cloud",
             "media", "player", "smart", "mega", "ultra", "super", "max", "pro",
@@ -844,7 +952,6 @@ class PanelCheckViewModel @Inject constructor() : ViewModel() {
         val words = mutableListOf<String>()
         var remaining = name.lowercase()
 
-        // Greedy matching - en uzun kelimeyi bul
         while (remaining.isNotEmpty()) {
             val matched = knownWords
                 .filter { remaining.startsWith(it) }
@@ -854,45 +961,31 @@ class PanelCheckViewModel @Inject constructor() : ViewModel() {
                 words.add(matched)
                 remaining = remaining.substring(matched.length)
             } else {
-                // Sayısal prefix varsa al
                 val numMatch = Regex("^\\d+").find(remaining)
                 if (numMatch != null) {
                     words.add(numMatch.value)
                     remaining = remaining.substring(numMatch.value.length)
                 } else {
-                    // Bilinmeyen kısım - tek karakter atla
-                    if (remaining.isNotEmpty()) {
-                        // Kalan kısmı bir kelime olarak al
-                        words.add(remaining)
-                        remaining = ""
-                    }
+                    words.add(remaining)
+                    remaining = ""
                 }
             }
         }
-
         return words
     }
 
-    /**
-     * Domain'de IPTV tespiti yap
-     */
     private fun testDomainForIptv(domain: String, originalIp: String, source: String): RelatedPanel? {
         return try {
             val resolvedIp = InetAddress.getByName(domain).hostAddress ?: return null
             val port = tryFindIptvPort(domain)
             RelatedPanel(
-                domain = domain,
-                ip = resolvedIp,
-                port = port,
+                domain = domain, ip = resolvedIp, port = port,
                 isOnline = port != null,
-                source = if (resolvedIp == originalIp) "$source (Aynı IP)" else "$source (Farklı IP: $resolvedIp)"
+                source = if (resolvedIp == originalIp) "$source (Aynı IP)" else "$source ($resolvedIp)"
             )
         } catch (_: Exception) { null }
     }
 
-    /**
-     * Hızlı IPTV port tespiti - yaygın portları dene
-     */
     private fun tryFindIptvPort(host: String): Int? {
         val quickPorts = listOf(80, 8080, 8880, 8888, 25461, 443, 8000)
         for (port in quickPorts) {
@@ -900,22 +993,15 @@ class PanelCheckViewModel @Inject constructor() : ViewModel() {
                 val socket = Socket()
                 socket.connect(InetSocketAddress(host, port), 2000)
                 socket.close()
-                if (testIptvEndpoint(host, port)) {
-                    return port
-                }
+                if (testIptvEndpoint(host, port)) return port
             } catch (_: Exception) {}
         }
         return null
     }
 
-    /**
-     * Base domain çıkar: sub.panel.example.com -> example.com
-     */
     private fun extractBaseDomain(host: String): String {
         val parts = host.split(".")
-        return if (parts.size >= 2) {
-            "${parts[parts.size - 2]}.${parts[parts.size - 1]}"
-        } else host
+        return if (parts.size >= 2) "${parts[parts.size - 2]}.${parts[parts.size - 1]}" else host
     }
 
     /**
@@ -932,12 +1018,24 @@ class PanelCheckViewModel @Inject constructor() : ViewModel() {
             val address = if (result.detectedPort != null) "${result.host}:${result.detectedPort}" else result.host
             sb.appendLine("$status | $address | IP: ${result.ipAddress ?: "?"} | ${result.responseTimeMs}ms")
 
+            if (result.allDiscoveredDomains.isNotEmpty()) {
+                sb.appendLine("  📋 Bulunan domainler (${result.allDiscoveredDomains.size}):")
+                result.allDiscoveredDomains.forEach { domain ->
+                    sb.appendLine("    - $domain")
+                }
+            }
+
             if (result.relatedDomains.isNotEmpty()) {
+                sb.appendLine("  📡 IPTV Paneller:")
                 result.relatedDomains.filter { it.isOnline }.forEach { related ->
-                    sb.appendLine("  ↳ ${related.domain}:${related.port} (${related.source})")
+                    sb.appendLine("    ↳ ${related.domain}:${related.port} (${related.source})")
                 }
             }
         }
         return sb.toString()
+    }
+
+    fun getScanLogText(): String {
+        return _state.value.scanLog.joinToString("\n")
     }
 }
