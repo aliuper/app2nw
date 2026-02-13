@@ -306,6 +306,7 @@ fun PanelCheckRoute(
                     PanelCheckResultCard(
                         result = result,
                         onFindRelated = { viewModel.findRelatedPanels(result) },
+                        onIpRangeScan = { viewModel.startIpRangeScan(result) },
                         isFindingRelated = state.isFindingRelated,
                         onCopyAddress = { address ->
                             clipboardManager.setText(AnnotatedString(address))
@@ -322,6 +323,7 @@ fun PanelCheckRoute(
 private fun PanelCheckResultCard(
     result: PanelCheckResult,
     onFindRelated: () -> Unit,
+    onIpRangeScan: () -> Unit,
     isFindingRelated: Boolean,
     onCopyAddress: (String) -> Unit
 ) {
@@ -421,7 +423,7 @@ private fun PanelCheckResultCard(
                 )
             }
 
-            // Butonlar
+            // Butonlar - ilk satır
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -453,7 +455,7 @@ private fun PanelCheckResultCard(
                             Icon(Icons.Default.TravelExplore, null, modifier = Modifier.size(14.dp))
                         }
                         Spacer(Modifier.width(4.dp))
-                        Text("Yan Panel Bul", style = MaterialTheme.typography.labelSmall)
+                        Text("Yan Panel", style = MaterialTheme.typography.labelSmall)
                     }
                 }
 
@@ -470,6 +472,31 @@ private fun PanelCheckResultCard(
                         )
                         Spacer(Modifier.width(4.dp))
                         Text("Port Detay", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+
+            // Butonlar - ikinci satır (IP Range)
+            if (result.ipAddress != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onIpRangeScan,
+                        enabled = !isFindingRelated,
+                        modifier = Modifier.height(32.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp)
+                    ) {
+                        if (isFindingRelated) {
+                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.Language, null, modifier = Modifier.size(14.dp))
+                        }
+                        Spacer(Modifier.width(4.dp))
+                        val ipParts = result.ipAddress?.split(".") ?: emptyList()
+                        val subnet = if (ipParts.size == 4) "${ipParts[0]}.${ipParts[1]}.${ipParts[2]}" else "?"
+                        Text("IP Range Tara ($subnet.*)", style = MaterialTheme.typography.labelSmall)
                     }
                 }
             }

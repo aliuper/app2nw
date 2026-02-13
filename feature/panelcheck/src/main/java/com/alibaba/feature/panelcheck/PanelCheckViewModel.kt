@@ -1038,4 +1038,122 @@ class PanelCheckViewModel @Inject constructor() : ViewModel() {
     fun getScanLogText(): String {
         return _state.value.scanLog.joinToString("\n")
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // IP RANGE TARAMA - /24 Subnet taraması
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Aynı /24 subnet'teki tüm IP'leri tara (x.x.x.1-255)
+     * Yaygın IPTV portlarında panel ara
+     */
+    fun startIpRangeScan(result: PanelCheckResult) {
+        val ip = result.ipAddress ?: return
+        val parts = ip.split(".")
+        if (parts.size != 4) return
+        val baseIp = "${parts[0]}.${parts[1]}.${parts[2]}"
+
+        viewModelScope.launch {
+            _state.update {
+                it.copy(
+                    isFindingRelated = true,
+                    scanLog = emptyList(),
+                    discoveredDomainsCount = 0,
+                    iptvFoundCount = 0,
+                    statusMessage = "🌐 IP Range Tarama: $baseIp.1-255"
+                )
+            }
+
+            val relatedPanels = mutableListOf<RelatedPanel>()
+            val quickPorts = listOf(80, 8080, 8880, 8888, 25461, 25462, 443, 8000)
+
+            withContext(Dispatchers.IO) {
+                addLog("━━━ IP RANGE TARAMA ━━━")
+                addLog("📍 Hedef: $baseIp.1 - $baseIp.255")
+                addLog("🔌 Portlar: ${quickPorts.joinToString(", ")}")
+                addLog("⏳ 255 IP × ${quickPorts.size} port = ${255 * quickPorts.size} bağlantı")
+
+                val semaphore = Semaphore(50)
+                var scannedCount = 0
+                val totalIps = 255
+
+                val jobs = (1..255).map { lastOctet ->
+                    async {
+                        semaphore.withPermit {
+                            val targetIp = "$baseIp.$lastOctet"
+                            if (targetIp == ip) {
+                                scannedCount++
+                                return@withPermit // Orijinal IP'yi atla
+                            }
+
+                            var foundPort: Int? = null
+                            for (port in quickPorts) {
+                                try {
+                                    val socket = Socket()
+                                    socket.connect(InetSocketAddress(targetIp, port), 1500)
+                                    socket.close()
+                                    if (testIptvEndpoint(targetIp, port)) {
+                                        foundPort = port
+                                        break
+                                    }
+                                } catch (_: Exception) {}
+                            }
+
+                            scannedCount++
+                            if (scannedCount % 20 == 0 || foundPort != null) {
+                                _state.update { it.copy(
+                                    statusMessage = "🌐 IP Tarama: $scannedCount/$totalIps | ${relatedPanels.size} IPTV bulundu",
+                                    progress = scannedCount.toFloat() / totalIps,
+                                    discoveredDomainsCount = scannedCount,
+                                    iptvFoundCount = relatedPanels.size
+                                )}
+                            }
+
+                            if (foundPort != null) {
+                                val panel = RelatedPanel(
+                                    domain = targetIp,
+                                    ip = targetIp,
+                                    port = foundPort,
+                                    isOnline = true,
+                                    source = "IP Range Tarama"
+                                )
+                                synchronized(relatedPanels) {
+                                    relatedPanels.add(panel)
+                                }
+                                addLog("  📡 $targetIp:$foundPort → IPTV Panel ✅")
+                            }
+                        }
+                    }
+                }
+
+                jobs.forEach { it.await() }
+
+                addLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                addLog("✅ IP Range Tarama Tamamlandı:")
+                addLog("  🔍 Taranan: 255 IP")
+                addLog("  📡 Bulunan IPTV: ${relatedPanels.size}")
+            }
+
+            // Mevcut sonuçlara ekle
+            val existingRelated = _state.value.results.find { it.host == result.host }?.relatedDomains ?: emptyList()
+            val combined = (existingRelated + relatedPanels).distinctBy { "${it.domain}:${it.port}" }
+            val sorted = combined.sortedWith(
+                compareByDescending<RelatedPanel> { it.isOnline }
+                    .thenByDescending { it.source.contains("Reverse IP") }
+            )
+
+            val updatedResults = _state.value.results.map { r ->
+                if (r.host == result.host) r.copy(relatedDomains = sorted) else r
+            }
+
+            _state.update {
+                it.copy(
+                    isFindingRelated = false,
+                    results = updatedResults,
+                    iptvFoundCount = relatedPanels.size,
+                    statusMessage = "✅ IP Range: ${relatedPanels.size} IPTV panel bulundu ($baseIp.1-255)"
+                )
+            }
+        }
+    }
 }
